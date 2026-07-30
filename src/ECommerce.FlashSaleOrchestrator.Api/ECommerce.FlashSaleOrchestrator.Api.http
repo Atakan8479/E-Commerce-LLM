@@ -1,0 +1,6 @@
+@ECommerce.FlashSaleOrchestrator.Api_HostAddress = https://localhost:7160
+
+GET {{ECommerce.FlashSaleOrchestrator.Api_HostAddress}}/health
+Accept: text/plain
+
+###
