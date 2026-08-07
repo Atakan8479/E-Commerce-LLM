@@ -1,5 +1,9 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/ECommerce.FlashSaleOrchestrator.Api/ECommerce.FlashSaleOrchestrator.Api.csproj" />
+    <Project Path="src/ECommerce.FlashSaleOrchestrator.Domain/ECommerce.FlashSaleOrchestrator.Domain.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ECommerce.FlashSaleOrchestrator.Domain.Tests/ECommerce.FlashSaleOrchestrator.Domain.Tests.csproj" />
   </Folder>
 </Solution>
