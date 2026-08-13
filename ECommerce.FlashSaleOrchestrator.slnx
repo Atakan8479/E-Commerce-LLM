@@ -3,9 +3,11 @@
     <Project Path="src/ECommerce.FlashSaleOrchestrator.Api/ECommerce.FlashSaleOrchestrator.Api.csproj" />
     <Project Path="src/ECommerce.FlashSaleOrchestrator.Application/ECommerce.FlashSaleOrchestrator.Application.csproj" />
     <Project Path="src/ECommerce.FlashSaleOrchestrator.Domain/ECommerce.FlashSaleOrchestrator.Domain.csproj" />
+    <Project Path="src/ECommerce.FlashSaleOrchestrator.Infrastructure/ECommerce.FlashSaleOrchestrator.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ECommerce.FlashSaleOrchestrator.Application.Tests/ECommerce.FlashSaleOrchestrator.Application.Tests.csproj" />
     <Project Path="tests/ECommerce.FlashSaleOrchestrator.Domain.Tests/ECommerce.FlashSaleOrchestrator.Domain.Tests.csproj" />
+    <Project Path="tests/ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests/ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.csproj" />
   </Folder>
 </Solution>

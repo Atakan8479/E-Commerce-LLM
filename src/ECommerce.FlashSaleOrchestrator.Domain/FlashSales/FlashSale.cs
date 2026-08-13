@@ -4,7 +4,8 @@ namespace ECommerce.FlashSaleOrchestrator.Domain.FlashSales;
 
 public sealed class FlashSale
 {
-    private readonly HashSet<ProductId> _eligibleProductIds = [];
+    private readonly List<FlashSaleEligibleProduct>
+        _eligibleProducts = [];
 
     public FlashSaleId Id { get; }
 
@@ -12,8 +13,15 @@ public sealed class FlashSale
 
     public DateTimeOffset EndsAtUtc { get; }
 
-    public IReadOnlyCollection<ProductId> EligibleProductIds =>
-        _eligibleProductIds;
+    public IReadOnlyCollection<FlashSaleEligibleProduct>
+        EligibleProducts =>
+            _eligibleProducts.AsReadOnly();
+
+    public IReadOnlyCollection<ProductId>
+        EligibleProductIds =>
+            _eligibleProducts
+                .Select(product => product.ProductId)
+                .ToArray();
 
     private FlashSale(
         FlashSaleId id,
@@ -51,7 +59,8 @@ public sealed class FlashSale
             endsAtUtc);
     }
 
-    public bool IsActiveAt(DateTimeOffset timestamp)
+    public bool IsActiveAt(
+        DateTimeOffset timestamp)
     {
         var timestampUtc =
             timestamp.ToUniversalTime();
@@ -60,24 +69,51 @@ public sealed class FlashSale
                timestampUtc < EndsAtUtc;
     }
 
-    public bool AddEligibleProduct(ProductId productId)
+    public bool AddEligibleProduct(
+        ProductId productId)
     {
         ArgumentNullException.ThrowIfNull(productId);
 
-        return _eligibleProductIds.Add(productId);
+        if (IsProductEligible(productId))
+        {
+            return false;
+        }
+
+        _eligibleProducts.Add(
+            FlashSaleEligibleProduct.Create(
+                productId));
+
+        return true;
     }
 
-    public bool RemoveEligibleProduct(ProductId productId)
+    public bool RemoveEligibleProduct(
+        ProductId productId)
     {
         ArgumentNullException.ThrowIfNull(productId);
 
-        return _eligibleProductIds.Remove(productId);
+        var eligibleProduct =
+            _eligibleProducts.SingleOrDefault(
+                product =>
+                    product.ProductId == productId);
+
+        if (eligibleProduct is null)
+        {
+            return false;
+        }
+
+        _eligibleProducts.Remove(
+            eligibleProduct);
+
+        return true;
     }
 
-    public bool IsProductEligible(ProductId productId)
+    public bool IsProductEligible(
+        ProductId productId)
     {
         ArgumentNullException.ThrowIfNull(productId);
 
-        return _eligibleProductIds.Contains(productId);
+        return _eligibleProducts.Any(
+            product =>
+                product.ProductId == productId);
     }
 }
