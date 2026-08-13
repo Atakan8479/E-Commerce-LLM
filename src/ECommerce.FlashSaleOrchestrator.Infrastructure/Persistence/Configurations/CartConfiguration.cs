@@ -1,4 +1,5 @@
 ﻿using ECommerce.FlashSaleOrchestrator.Domain.Carts;
+using ECommerce.FlashSaleOrchestrator.Domain.Products;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Converters;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -54,6 +55,14 @@ internal sealed class CartConfiguration
                 itemBuilder.HasKey(
                     "CartId",
                     nameof(CartItem.ProductId));
+
+                itemBuilder.HasOne<Product>()
+                    .WithMany()
+                    .HasForeignKey(
+                        item => item.ProductId)
+                    .IsRequired()
+                    .OnDelete(
+                        DeleteBehavior.Restrict);
             });
 
         builder.Navigation(

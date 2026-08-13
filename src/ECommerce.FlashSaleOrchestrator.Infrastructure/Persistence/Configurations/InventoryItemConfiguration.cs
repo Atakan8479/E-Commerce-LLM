@@ -1,4 +1,5 @@
 ﻿using ECommerce.FlashSaleOrchestrator.Domain.Inventory;
+using ECommerce.FlashSaleOrchestrator.Domain.Products;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Converters;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -42,6 +43,16 @@ internal sealed class InventoryItemConfiguration
 
         builder.Property<byte[]>(
                 "RowVersion")
-            .IsRowVersion();
+            .IsRowVersion()
+            .IsRequired();
+
+        builder.HasOne<Product>()
+            .WithOne()
+            .HasForeignKey<InventoryItem>(
+                inventoryItem =>
+                    inventoryItem.ProductId)
+            .IsRequired()
+            .OnDelete(
+                DeleteBehavior.Restrict);
     }
 }

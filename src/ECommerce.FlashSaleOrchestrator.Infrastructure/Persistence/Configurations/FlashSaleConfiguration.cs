@@ -1,4 +1,5 @@
 ﻿using ECommerce.FlashSaleOrchestrator.Domain.FlashSales;
+using ECommerce.FlashSaleOrchestrator.Domain.Products;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Converters;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -67,6 +68,15 @@ internal sealed class FlashSaleConfiguration
                     "FlashSaleId",
                     nameof(
                         FlashSaleEligibleProduct.ProductId));
+
+                eligibleBuilder.HasOne<Product>()
+                    .WithMany()
+                    .HasForeignKey(
+                        eligible =>
+                            eligible.ProductId)
+                    .IsRequired()
+                    .OnDelete(
+                        DeleteBehavior.Restrict);
             });
 
         builder.Navigation(
