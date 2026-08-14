@@ -5,7 +5,7 @@ using ECommerce.FlashSaleOrchestrator.Domain.Products;
 
 namespace ECommerce.FlashSaleOrchestrator.Domain.Inventory;
 
-public sealed class InventoryItem
+public sealed class InventoryItem : IHasDomainEvents
 {
     private readonly List<IDomainEvent> _domainEvents = [];
 
