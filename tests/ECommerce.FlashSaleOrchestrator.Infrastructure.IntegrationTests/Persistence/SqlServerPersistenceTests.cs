@@ -1,8 +1,10 @@
-﻿using ECommerce.FlashSaleOrchestrator.Domain.Carts;
+using ECommerce.FlashSaleOrchestrator.Domain.Carts;
 using ECommerce.FlashSaleOrchestrator.Domain.Inventory;
 using ECommerce.FlashSaleOrchestrator.Domain.Products;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Repositories;
+using System.Text.Json;
+using ECommerce.FlashSaleOrchestrator.Domain.Inventory.Events;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
@@ -59,6 +61,100 @@ public sealed class SqlServerPersistenceTests
         Assert.Equal(
             5,
             inventoryItem.AvailableQuantity.Value);
+    }
+
+    [Fact]
+    public async Task SaveChangesAsync_ShouldPersistOutboxMessage_WhenStockBecomesDepleted()
+    {
+        await using var database =
+            await TestDatabase.CreateAsync();
+
+        var productId =
+            ProductId.New();
+
+        await using (var arrangeContext =
+            database.CreateContext())
+        {
+            arrangeContext.Products.Add(
+                Product.Create(
+                    productId,
+                    ProductName.From(
+                        "Outbox Test Product")));
+
+            arrangeContext.InventoryItems.Add(
+                InventoryItem.Create(
+                    productId,
+                    StockQuantity.From(1)));
+
+            await arrangeContext.SaveChangesAsync();
+        }
+
+        await using (var actContext =
+            database.CreateContext())
+        {
+            var inventoryItem =
+                await actContext.InventoryItems.SingleAsync(
+                    item =>
+                        item.ProductId == productId);
+
+            inventoryItem.DecreaseStock(1);
+
+            Assert.Single(
+                inventoryItem.DomainEvents);
+
+            await actContext.SaveChangesAsync();
+
+            Assert.Empty(
+                inventoryItem.DomainEvents);
+        }
+
+        await using var assertContext =
+            database.CreateContext();
+
+        var persistedInventoryItem =
+            await assertContext.InventoryItems
+                .AsNoTracking()
+                .SingleAsync(
+                    item =>
+                        item.ProductId == productId);
+
+        var outboxMessage =
+            await assertContext.OutboxMessages
+                .AsNoTracking()
+                .SingleAsync();
+
+        Assert.Equal(
+            0,
+            persistedInventoryItem.AvailableQuantity.Value);
+
+        Assert.NotEqual(
+            Guid.Empty,
+            outboxMessage.Id);
+
+        Assert.Equal(
+            typeof(StockDepletedDomainEvent).FullName,
+            outboxMessage.Type);
+
+        Assert.Null(
+            outboxMessage.ProcessedAtUtc);
+
+        Assert.NotEqual(
+            default,
+            outboxMessage.OccurredAtUtc);
+
+        using var payload =
+            JsonDocument.Parse(
+                outboxMessage.Payload);
+
+        var persistedProductId =
+            payload.RootElement
+                .GetProperty("ProductId")
+                .GetProperty("Value")
+                .GetGuid();
+
+        Assert.Equal(
+            productId.Value,
+            persistedProductId);
     }
 
     [Fact]
@@ -193,6 +289,38 @@ public sealed class SqlServerPersistenceTests
             DbUpdateConcurrencyException>(
                 () =>
                     secondContext.SaveChangesAsync());
+
+        Assert.Single(
+            secondInventoryItem.DomainEvents);
+
+        await using var verificationContext =
+            database.CreateContext();
+
+        var persistedInventoryItem =
+            await verificationContext.InventoryItems
+                .AsNoTracking()
+                .SingleAsync(
+                    item =>
+                        item.ProductId == productId);
+
+        var persistedOutboxMessages =
+            await verificationContext.OutboxMessages
+                .AsNoTracking()
+                .ToListAsync();
+
+        Assert.Equal(
+            0,
+            persistedInventoryItem.AvailableQuantity.Value);
+
+        Assert.Single(
+            persistedOutboxMessages);
+
+        Assert.Equal(
+            typeof(StockDepletedDomainEvent).FullName,
+            persistedOutboxMessages[0].Type);
+
+        Assert.Null(
+            persistedOutboxMessages[0].ProcessedAtUtc);
     }
 
     private sealed class TestDatabase
