@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\ECommerce.FlashSaleOrchestrator.Application\ECommerce.FlashSaleOrchestrator.Application.csproj" />
     <ProjectReference Include="..\..\src\ECommerce.FlashSaleOrchestrator.Infrastructure\ECommerce.FlashSaleOrchestrator.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\ECommerce.FlashSaleOrchestrator.Domain\ECommerce.FlashSaleOrchestrator.Domain.csproj" />
+    <ProjectReference Include="..\..\src\ECommerce.FlashSaleOrchestrator.Worker\ECommerce.FlashSaleOrchestrator.Worker.csproj" />
   </ItemGroup>
 
 </Project>

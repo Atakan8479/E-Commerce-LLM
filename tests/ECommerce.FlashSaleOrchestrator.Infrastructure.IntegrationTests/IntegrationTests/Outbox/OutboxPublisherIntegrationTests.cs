@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Confluent.Kafka;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.Kafka;
 using ECommerce.FlashSaleOrchestrator.Api.BackgroundServices;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
 using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
