@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Confluent.Kafka" Version="2.15.0" />
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
@@ -19,6 +20,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\ECommerce.FlashSaleOrchestrator.Api\ECommerce.FlashSaleOrchestrator.Api.csproj" />
+    <ProjectReference Include="..\..\src\ECommerce.FlashSaleOrchestrator.Application\ECommerce.FlashSaleOrchestrator.Application.csproj" />
     <ProjectReference Include="..\..\src\ECommerce.FlashSaleOrchestrator.Infrastructure\ECommerce.FlashSaleOrchestrator.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\ECommerce.FlashSaleOrchestrator.Domain\ECommerce.FlashSaleOrchestrator.Domain.csproj" />
   </ItemGroup>

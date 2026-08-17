@@ -37,4 +37,22 @@ public sealed class OutboxMessage
     public string Payload { get; private set; } = null!;
 
     public DateTime? ProcessedAtUtc { get; private set; }
+
+    public void MarkProcessed(DateTime processedAtUtc)
+    {
+        if (processedAtUtc.Kind != DateTimeKind.Utc)
+        {
+            throw new ArgumentException(
+                "Processed timestamp must be UTC.",
+                nameof(processedAtUtc));
+        }
+
+        if (ProcessedAtUtc.HasValue)
+        {
+            throw new InvalidOperationException(
+                "Outbox message has already been processed.");
+        }
+
+        ProcessedAtUtc = processedAtUtc;
+    }
 }
