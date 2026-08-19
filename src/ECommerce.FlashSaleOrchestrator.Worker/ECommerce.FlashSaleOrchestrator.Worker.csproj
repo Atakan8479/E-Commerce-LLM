@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ECommerce.FlashSaleOrchestrator.Application\ECommerce.FlashSaleOrchestrator.Application.csproj" />
+    <ProjectReference Include="..\ECommerce.FlashSaleOrchestrator.Infrastructure\ECommerce.FlashSaleOrchestrator.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

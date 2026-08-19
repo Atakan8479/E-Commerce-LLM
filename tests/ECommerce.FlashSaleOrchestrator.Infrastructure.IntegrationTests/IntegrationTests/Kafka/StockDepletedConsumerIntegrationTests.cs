@@ -2,9 +2,9 @@ using System.Text.Json;
 using Confluent.Kafka;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
 using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.Outbox;
 using ECommerce.FlashSaleOrchestrator.Worker.BackgroundServices;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -16,7 +16,7 @@ public sealed class StockDepletedConsumerIntegrationTests
         new(JsonSerializerDefaults.Web);
 
     [Fact]
-    public async Task ConsumerWorker_ShouldDispatchEventAndCommitOffset_WhenHandlerSucceeds()
+    public async Task ConsumerWorker_ShouldDispatchEventAndCommitOffset_WhenProcessorSucceeds()
     {
         await using var topic =
             await KafkaTestTopic.CreateAsync();
@@ -24,8 +24,23 @@ public sealed class StockDepletedConsumerIntegrationTests
         var consumerGroupId =
             $"flashsale-consumer-tests-{Guid.NewGuid():N}";
 
-        var handler =
-            new RecordingIntegrationEventHandler();
+        var processor =
+            new RecordingIntegrationEventProcessor();
+
+        var services =
+            new ServiceCollection();
+
+        services.AddScoped<
+            IIntegrationEventProcessor<
+                StockDepletedIntegrationEvent>>(
+            _ => processor);
+
+        await using var serviceProvider =
+            services.BuildServiceProvider();
+
+        var serviceScopeFactory =
+            serviceProvider.GetRequiredService<
+                IServiceScopeFactory>();
 
         var options =
             Options.Create(
@@ -44,7 +59,7 @@ public sealed class StockDepletedConsumerIntegrationTests
         using var worker =
             new StockDepletedConsumerWorker(
                 options,
-                handler,
+                serviceScopeFactory,
                 NullLogger<
                     StockDepletedConsumerWorker>.Instance);
 
@@ -88,21 +103,21 @@ public sealed class StockDepletedConsumerIntegrationTests
                         payload
                 });
 
-            var consumedEvent =
-                await handler.WaitAsync(
+            var processedEvent =
+                await processor.WaitAsync(
                     TimeSpan.FromSeconds(15));
 
             Assert.Equal(
                 integrationEvent.EventId,
-                consumedEvent.EventId);
+                processedEvent.EventId);
 
             Assert.Equal(
                 integrationEvent.ProductId,
-                consumedEvent.ProductId);
+                processedEvent.ProductId);
 
             Assert.Equal(
                 integrationEvent.OccurredAtUtc,
-                consumedEvent.OccurredAtUtc);
+                processedEvent.OccurredAtUtc);
         }
         finally
         {
@@ -141,8 +156,8 @@ public sealed class StockDepletedConsumerIntegrationTests
         verificationConsumer.Close();
     }
 
-    private sealed class RecordingIntegrationEventHandler
-        : IIntegrationEventHandler<
+    private sealed class RecordingIntegrationEventProcessor
+        : IIntegrationEventProcessor<
             StockDepletedIntegrationEvent>
     {
         private readonly TaskCompletionSource<
@@ -151,14 +166,15 @@ public sealed class StockDepletedConsumerIntegrationTests
                     TaskCreationOptions
                         .RunContinuationsAsynchronously);
 
-        public Task HandleAsync(
+        public Task<IntegrationEventProcessingResult> ProcessAsync(
             StockDepletedIntegrationEvent integrationEvent,
             CancellationToken cancellationToken = default)
         {
             _messageReceived.TrySetResult(
                 integrationEvent);
 
-            return Task.CompletedTask;
+            return Task.FromResult(
+                IntegrationEventProcessingResult.Processed);
         }
 
         public Task<StockDepletedIntegrationEvent> WaitAsync(

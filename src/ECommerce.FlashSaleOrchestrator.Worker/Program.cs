@@ -3,9 +3,24 @@ using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
 using ECommerce.FlashSaleOrchestrator.Worker.BackgroundServices;
 using ECommerce.FlashSaleOrchestrator.Worker.IntegrationEvents.Inventory;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
+using ECommerce.FlashSaleOrchestrator.Infrastructure;
 
 var builder =
     Host.CreateApplicationBuilder(args);
+
+var sqlConnectionString =
+    Environment.GetEnvironmentVariable(
+        "FLASHSALE_SQL_CONNECTION");
+
+if (string.IsNullOrWhiteSpace(
+    sqlConnectionString))
+{
+    throw new InvalidOperationException(
+        "Environment variable 'FLASHSALE_SQL_CONNECTION' must be configured.");
+}
+
+builder.Services.AddInfrastructure(
+    sqlConnectionString);
 
 builder.Services
     .AddOptions<KafkaConsumerOptions>()
@@ -29,7 +44,7 @@ builder.Services
         "Kafka consumer group id must be configured.")
     .ValidateOnStart();
 
-builder.Services.AddSingleton<
+builder.Services.AddScoped<
     IIntegrationEventHandler<
         StockDepletedIntegrationEvent>,
     StockDepletedIntegrationEventHandler>();

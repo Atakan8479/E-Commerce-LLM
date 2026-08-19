@@ -3,6 +3,9 @@ using Confluent.Kafka;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
 using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace ECommerce.FlashSaleOrchestrator.Worker.BackgroundServices;
@@ -15,8 +18,8 @@ public sealed class StockDepletedConsumerWorker
 
     private readonly KafkaConsumerOptions _options;
 
-    private readonly IIntegrationEventHandler<
-        StockDepletedIntegrationEvent> _handler;
+    private readonly IServiceScopeFactory
+        _serviceScopeFactory;
 
     private readonly ILogger<StockDepletedConsumerWorker>
         _logger;
@@ -26,15 +29,14 @@ public sealed class StockDepletedConsumerWorker
 
     public StockDepletedConsumerWorker(
         IOptions<KafkaConsumerOptions> options,
-        IIntegrationEventHandler<
-            StockDepletedIntegrationEvent> handler,
+        IServiceScopeFactory serviceScopeFactory,
         ILogger<StockDepletedConsumerWorker> logger)
     {
         ArgumentNullException.ThrowIfNull(
             options);
 
         ArgumentNullException.ThrowIfNull(
-            handler);
+            serviceScopeFactory);
 
         ArgumentNullException.ThrowIfNull(
             logger);
@@ -42,8 +44,8 @@ public sealed class StockDepletedConsumerWorker
         _options =
             options.Value;
 
-        _handler =
-            handler;
+        _serviceScopeFactory =
+            serviceScopeFactory;
 
         _logger =
             logger;
@@ -120,17 +122,33 @@ public sealed class StockDepletedConsumerWorker
                         Deserialize(
                             consumeResult.Message.Value);
 
-                    await _handler.HandleAsync(
-                        integrationEvent,
-                        stoppingToken);
+                    await using var scope =
+                        _serviceScopeFactory
+                            .CreateAsyncScope();
+
+                    var processor =
+                        scope.ServiceProvider
+                            .GetRequiredService<
+                                IIntegrationEventProcessor<
+                                    StockDepletedIntegrationEvent>>();
+
+                    var processingResult =
+                        await processor.ProcessAsync(
+                            integrationEvent,
+                            stoppingToken);
 
                     _consumer.Commit(
                         consumeResult);
 
                     _logger.LogInformation(
-                        "Stock depleted event processed and offset committed. " +
-                        "EventId: {EventId}, Topic: {Topic}, Partition: {Partition}, Offset: {Offset}",
+                        "Stock depleted event acknowledged. " +
+                        "EventId: {EventId}, " +
+                        "ProcessingResult: {ProcessingResult}, " +
+                        "Topic: {Topic}, " +
+                        "Partition: {Partition}, " +
+                        "Offset: {Offset}",
                         integrationEvent.EventId,
+                        processingResult,
                         consumeResult.Topic,
                         consumeResult.Partition,
                         consumeResult.Offset);
@@ -145,7 +163,10 @@ public sealed class StockDepletedConsumerWorker
                     _logger.LogError(
                         exception,
                         "Stock depleted event processing failed. " +
-                        "Offset was not committed. Topic: {Topic}, Partition: {Partition}, Offset: {Offset}",
+                        "Offset was not committed. " +
+                        "Topic: {Topic}, " +
+                        "Partition: {Partition}, " +
+                        "Offset: {Offset}",
                         consumeResult.Topic,
                         consumeResult.Partition,
                         consumeResult.Offset);

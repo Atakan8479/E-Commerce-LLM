@@ -6,6 +6,7 @@ using ECommerce.FlashSaleOrchestrator.Domain.FlashSales;
 using ECommerce.FlashSaleOrchestrator.Domain.Inventory;
 using ECommerce.FlashSaleOrchestrator.Domain.Products;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Outbox;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Inbox;
 using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence;
@@ -34,6 +35,9 @@ public sealed class FlashSaleOrchestratorDbContext
 
     public DbSet<OutboxMessage> OutboxMessages =>
         Set<OutboxMessage>();
+
+    public DbSet<InboxMessage> InboxMessages =>
+        Set<InboxMessage>();
 
     protected override void OnModelCreating(
         ModelBuilder modelBuilder)
