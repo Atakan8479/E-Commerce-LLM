@@ -11,6 +11,9 @@ public sealed class KafkaConsumerOptions
     public string StockDepletedTopic { get; set; } =
         string.Empty;
 
+    public string StockDepletedDeadLetterTopic { get; set; } =
+        string.Empty;
+
     public string ConsumerGroupId { get; set; } =
         string.Empty;
 }

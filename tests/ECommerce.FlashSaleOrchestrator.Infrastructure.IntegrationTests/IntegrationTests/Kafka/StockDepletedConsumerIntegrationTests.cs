@@ -3,6 +3,7 @@ using Confluent.Kafka;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
 using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
 using ECommerce.FlashSaleOrchestrator.Worker.BackgroundServices;
+using ECommerce.FlashSaleOrchestrator.Worker.Messaging.DeadLetter;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
 using ECommerce.FlashSaleOrchestrator.Worker.Resilience;
 using Microsoft.Extensions.DependencyInjection;
@@ -53,6 +54,9 @@ public sealed class StockDepletedConsumerIntegrationTests
                     StockDepletedTopic =
                         topic.Name,
 
+                    StockDepletedDeadLetterTopic =
+                        $"{topic.Name}.dlq",
+
                     ConsumerGroupId =
                         consumerGroupId
                 });
@@ -71,11 +75,15 @@ public sealed class StockDepletedConsumerIntegrationTests
                 NullLogger<
                     IntegrationEventRetryExecutor>.Instance);
 
+        var deadLetterPublisher =
+            new RecordingDeadLetterPublisher();
+
         using var worker =
             new StockDepletedConsumerWorker(
                 options,
                 serviceScopeFactory,
                 retryExecutor,
+                deadLetterPublisher,
                 NullLogger<
                     StockDepletedConsumerWorker>.Instance);
 
@@ -141,6 +149,10 @@ public sealed class StockDepletedConsumerIntegrationTests
                 CancellationToken.None);
         }
 
+        Assert.Equal(
+            0,
+            deadLetterPublisher.InvocationCount);
+
         using var verificationConsumer =
             new ConsumerBuilder<string, string>(
                 new ConsumerConfig
@@ -200,6 +212,24 @@ public sealed class StockDepletedConsumerIntegrationTests
                 .Task
                 .WaitAsync(
                     timeout);
+        }
+    }
+
+    private sealed class RecordingDeadLetterPublisher
+        : IDeadLetterPublisher
+    {
+        public int InvocationCount { get; private set; }
+
+        public Task PublishAsync(
+            DeadLetterMessage message,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(
+                message);
+
+            InvocationCount++;
+
+            return Task.CompletedTask;
         }
     }
 }

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Confluent.Kafka;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
 using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
+using ECommerce.FlashSaleOrchestrator.Worker.Messaging.DeadLetter;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
 using ECommerce.FlashSaleOrchestrator.Worker.Resilience;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,13 +18,17 @@ public sealed class StockDepletedConsumerWorker
     private static readonly JsonSerializerOptions SerializerOptions =
         new(JsonSerializerDefaults.Web);
 
-    private readonly KafkaConsumerOptions _options;
+    private readonly KafkaConsumerOptions
+        _options;
 
     private readonly IServiceScopeFactory
         _serviceScopeFactory;
 
     private readonly IntegrationEventRetryExecutor
         _retryExecutor;
+
+    private readonly IDeadLetterPublisher
+        _deadLetterPublisher;
 
     private readonly ILogger<StockDepletedConsumerWorker>
         _logger;
@@ -35,6 +40,7 @@ public sealed class StockDepletedConsumerWorker
         IOptions<KafkaConsumerOptions> options,
         IServiceScopeFactory serviceScopeFactory,
         IntegrationEventRetryExecutor retryExecutor,
+        IDeadLetterPublisher deadLetterPublisher,
         ILogger<StockDepletedConsumerWorker> logger)
     {
         ArgumentNullException.ThrowIfNull(
@@ -47,6 +53,9 @@ public sealed class StockDepletedConsumerWorker
             retryExecutor);
 
         ArgumentNullException.ThrowIfNull(
+            deadLetterPublisher);
+
+        ArgumentNullException.ThrowIfNull(
             logger);
 
         _options =
@@ -57,6 +66,9 @@ public sealed class StockDepletedConsumerWorker
 
         _retryExecutor =
             retryExecutor;
+
+        _deadLetterPublisher =
+            deadLetterPublisher;
 
         _logger =
             logger;
@@ -96,7 +108,9 @@ public sealed class StockDepletedConsumerWorker
         CancellationToken stoppingToken)
     {
         _logger.LogInformation(
-            "Stock depleted consumer started. Topic: {Topic}, GroupId: {GroupId}",
+            "Stock depleted consumer started. " +
+            "Topic: {Topic}, " +
+            "GroupId: {GroupId}",
             _options.StockDepletedTopic,
             _options.ConsumerGroupId);
 
@@ -129,35 +143,96 @@ public sealed class StockDepletedConsumerWorker
 
                 try
                 {
-                    var integrationEvent =
-                        Deserialize(
-                            consumeResult.Message.Value);
+                    StockDepletedIntegrationEvent
+                        integrationEvent;
 
-                    var processingResult =
-                        await _retryExecutor.ExecuteAsync(
-                            cancellationToken =>
-                                ProcessIntegrationEventAsync(
-                                    integrationEvent,
-                                    cancellationToken),
-                            integrationEvent.EventId,
-                            integrationEvent.EventType,
+                    try
+                    {
+                        integrationEvent =
+                            Deserialize(
+                                consumeResult.Message.Value);
+                    }
+                    catch (Exception deserializationException)
+                    {
+                        await PublishPoisonMessageToDeadLetterAsync(
+                            consumeResult,
+                            deserializationException,
                             stoppingToken);
 
-                    _consumer.Commit(
-                        consumeResult);
+                        _consumer.Commit(
+                            consumeResult);
 
-                    _logger.LogInformation(
-                        "Stock depleted event acknowledged. " +
-                        "EventId: {EventId}, " +
-                        "ProcessingResult: {ProcessingResult}, " +
-                        "Topic: {Topic}, " +
-                        "Partition: {Partition}, " +
-                        "Offset: {Offset}",
-                        integrationEvent.EventId,
-                        processingResult,
-                        consumeResult.Topic,
-                        consumeResult.Partition,
-                        consumeResult.Offset);
+                        _logger.LogWarning(
+                            "Invalid stock depleted message moved " +
+                            "to dead-letter topic and original " +
+                            "offset committed. " +
+                            "Topic: {Topic}, " +
+                            "Partition: {Partition}, " +
+                            "Offset: {Offset}",
+                            consumeResult.Topic,
+                            consumeResult.Partition,
+                            consumeResult.Offset);
+
+                        continue;
+                    }
+
+                    try
+                    {
+                        var processingResult =
+                            await _retryExecutor.ExecuteAsync(
+                                cancellationToken =>
+                                    ProcessIntegrationEventAsync(
+                                        integrationEvent,
+                                        cancellationToken),
+                                integrationEvent.EventId,
+                                integrationEvent.EventType,
+                                stoppingToken);
+
+                        _consumer.Commit(
+                            consumeResult);
+
+                        _logger.LogInformation(
+                            "Stock depleted event acknowledged. " +
+                            "EventId: {EventId}, " +
+                            "ProcessingResult: {ProcessingResult}, " +
+                            "Topic: {Topic}, " +
+                            "Partition: {Partition}, " +
+                            "Offset: {Offset}",
+                            integrationEvent.EventId,
+                            processingResult,
+                            consumeResult.Topic,
+                            consumeResult.Partition,
+                            consumeResult.Offset);
+                    }
+                    catch (OperationCanceledException)
+                        when (stoppingToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    catch (Exception processingException)
+                    {
+                        await PublishToDeadLetterAsync(
+                            consumeResult,
+                            integrationEvent,
+                            processingException,
+                            stoppingToken);
+
+                        _consumer.Commit(
+                            consumeResult);
+
+                        _logger.LogWarning(
+                            "Stock depleted event moved to " +
+                            "dead-letter topic and original " +
+                            "offset committed. " +
+                            "EventId: {EventId}, " +
+                            "Topic: {Topic}, " +
+                            "Partition: {Partition}, " +
+                            "Offset: {Offset}",
+                            integrationEvent.EventId,
+                            consumeResult.Topic,
+                            consumeResult.Partition,
+                            consumeResult.Offset);
+                    }
                 }
                 catch (OperationCanceledException)
                     when (stoppingToken.IsCancellationRequested)
@@ -207,6 +282,62 @@ public sealed class StockDepletedConsumerWorker
 
         return await processor.ProcessAsync(
             integrationEvent,
+            cancellationToken);
+    }
+
+    private async Task PublishToDeadLetterAsync(
+        ConsumeResult<string, string> consumeResult,
+        StockDepletedIntegrationEvent integrationEvent,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        var deadLetterMessage =
+            new DeadLetterMessage(
+                integrationEvent.EventId,
+                integrationEvent.EventType,
+                consumeResult.Message.Key,
+                consumeResult.Topic,
+                consumeResult.Partition.Value,
+                consumeResult.Offset.Value,
+                consumeResult.Message.Value,
+                exception.GetType().FullName
+                    ?? exception.GetType().Name,
+                exception.Message,
+                DateTime.UtcNow);
+
+        await _deadLetterPublisher.PublishAsync(
+            deadLetterMessage,
+            cancellationToken);
+    }
+
+    private async Task PublishPoisonMessageToDeadLetterAsync(
+        ConsumeResult<string, string> consumeResult,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        Guid? eventId =
+            Guid.TryParse(
+                consumeResult.Message.Key,
+                out var parsedEventId)
+                ? parsedEventId
+                : null;
+
+        var deadLetterMessage =
+            new DeadLetterMessage(
+                eventId,
+                null,
+                consumeResult.Message.Key,
+                consumeResult.Topic,
+                consumeResult.Partition.Value,
+                consumeResult.Offset.Value,
+                consumeResult.Message.Value,
+                exception.GetType().FullName
+                    ?? exception.GetType().Name,
+                exception.Message,
+                DateTime.UtcNow);
+
+        await _deadLetterPublisher.PublishAsync(
+            deadLetterMessage,
             cancellationToken);
     }
 

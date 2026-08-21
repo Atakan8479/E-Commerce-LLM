@@ -5,6 +5,7 @@ using ECommerce.FlashSaleOrchestrator.Worker.BackgroundServices;
 using ECommerce.FlashSaleOrchestrator.Worker.IntegrationEvents.Inventory;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
 using ECommerce.FlashSaleOrchestrator.Worker.Resilience;
+using ECommerce.FlashSaleOrchestrator.Worker.Messaging.DeadLetter;
 
 var builder =
     Host.CreateApplicationBuilder(args);
@@ -43,6 +44,11 @@ builder.Services
             !string.IsNullOrWhiteSpace(
                 options.ConsumerGroupId),
         "Kafka consumer group id must be configured.")
+    .Validate(
+        options =>
+            !string.IsNullOrWhiteSpace(
+                options.StockDepletedDeadLetterTopic),
+        "Stock depleted dead-letter Kafka topic must be configured.")
     .ValidateOnStart();
 
 builder.Services
