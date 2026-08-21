@@ -3,6 +3,7 @@ using Confluent.Kafka;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
 using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
+using ECommerce.FlashSaleOrchestrator.Worker.Resilience;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -21,6 +22,9 @@ public sealed class StockDepletedConsumerWorker
     private readonly IServiceScopeFactory
         _serviceScopeFactory;
 
+    private readonly IntegrationEventRetryExecutor
+        _retryExecutor;
+
     private readonly ILogger<StockDepletedConsumerWorker>
         _logger;
 
@@ -30,6 +34,7 @@ public sealed class StockDepletedConsumerWorker
     public StockDepletedConsumerWorker(
         IOptions<KafkaConsumerOptions> options,
         IServiceScopeFactory serviceScopeFactory,
+        IntegrationEventRetryExecutor retryExecutor,
         ILogger<StockDepletedConsumerWorker> logger)
     {
         ArgumentNullException.ThrowIfNull(
@@ -39,6 +44,9 @@ public sealed class StockDepletedConsumerWorker
             serviceScopeFactory);
 
         ArgumentNullException.ThrowIfNull(
+            retryExecutor);
+
+        ArgumentNullException.ThrowIfNull(
             logger);
 
         _options =
@@ -46,6 +54,9 @@ public sealed class StockDepletedConsumerWorker
 
         _serviceScopeFactory =
             serviceScopeFactory;
+
+        _retryExecutor =
+            retryExecutor;
 
         _logger =
             logger;
@@ -122,19 +133,14 @@ public sealed class StockDepletedConsumerWorker
                         Deserialize(
                             consumeResult.Message.Value);
 
-                    await using var scope =
-                        _serviceScopeFactory
-                            .CreateAsyncScope();
-
-                    var processor =
-                        scope.ServiceProvider
-                            .GetRequiredService<
-                                IIntegrationEventProcessor<
-                                    StockDepletedIntegrationEvent>>();
-
                     var processingResult =
-                        await processor.ProcessAsync(
-                            integrationEvent,
+                        await _retryExecutor.ExecuteAsync(
+                            cancellationToken =>
+                                ProcessIntegrationEventAsync(
+                                    integrationEvent,
+                                    cancellationToken),
+                            integrationEvent.EventId,
+                            integrationEvent.EventType,
                             stoppingToken);
 
                     _consumer.Commit(
@@ -182,6 +188,26 @@ public sealed class StockDepletedConsumerWorker
             _logger.LogInformation(
                 "Stock depleted consumer stopped.");
         }
+    }
+
+    private async Task<IntegrationEventProcessingResult>
+        ProcessIntegrationEventAsync(
+        StockDepletedIntegrationEvent integrationEvent,
+        CancellationToken cancellationToken)
+    {
+        await using var scope =
+            _serviceScopeFactory
+                .CreateAsyncScope();
+
+        var processor =
+            scope.ServiceProvider
+                .GetRequiredService<
+                    IIntegrationEventProcessor<
+                        StockDepletedIntegrationEvent>>();
+
+        return await processor.ProcessAsync(
+            integrationEvent,
+            cancellationToken);
     }
 
     private static StockDepletedIntegrationEvent Deserialize(

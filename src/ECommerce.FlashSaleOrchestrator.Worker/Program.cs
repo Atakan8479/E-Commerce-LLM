@@ -1,9 +1,10 @@
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
 using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
+using ECommerce.FlashSaleOrchestrator.Infrastructure;
 using ECommerce.FlashSaleOrchestrator.Worker.BackgroundServices;
 using ECommerce.FlashSaleOrchestrator.Worker.IntegrationEvents.Inventory;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
-using ECommerce.FlashSaleOrchestrator.Infrastructure;
+using ECommerce.FlashSaleOrchestrator.Worker.Resilience;
 
 var builder =
     Host.CreateApplicationBuilder(args);
@@ -43,6 +44,24 @@ builder.Services
                 options.ConsumerGroupId),
         "Kafka consumer group id must be configured.")
     .ValidateOnStart();
+
+builder.Services
+    .AddOptions<EventProcessingRetryOptions>()
+    .Bind(
+        builder.Configuration.GetSection(
+            EventProcessingRetryOptions.SectionName))
+    .Validate(
+        options =>
+            options.MaxAttempts is >= 1 and <= 10,
+        "Event processing retry attempts must be between 1 and 10.")
+    .Validate(
+        options =>
+            options.InitialDelay >= TimeSpan.Zero,
+        "Event processing retry initial delay cannot be negative.")
+    .ValidateOnStart();
+
+builder.Services.AddSingleton<
+    IntegrationEventRetryExecutor>();
 
 builder.Services.AddScoped<
     IIntegrationEventHandler<

@@ -4,6 +4,7 @@ using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
 using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
 using ECommerce.FlashSaleOrchestrator.Worker.BackgroundServices;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
+using ECommerce.FlashSaleOrchestrator.Worker.Resilience;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -56,10 +57,25 @@ public sealed class StockDepletedConsumerIntegrationTests
                         consumerGroupId
                 });
 
+        var retryExecutor =
+            new IntegrationEventRetryExecutor(
+                Options.Create(
+                    new EventProcessingRetryOptions
+                    {
+                        MaxAttempts =
+                            3,
+
+                        InitialDelay =
+                            TimeSpan.Zero
+                    }),
+                NullLogger<
+                    IntegrationEventRetryExecutor>.Instance);
+
         using var worker =
             new StockDepletedConsumerWorker(
                 options,
                 serviceScopeFactory,
+                retryExecutor,
                 NullLogger<
                     StockDepletedConsumerWorker>.Instance);
 

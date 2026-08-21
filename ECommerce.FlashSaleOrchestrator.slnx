@@ -10,5 +10,6 @@
     <Project Path="tests/ECommerce.FlashSaleOrchestrator.Application.Tests/ECommerce.FlashSaleOrchestrator.Application.Tests.csproj" />
     <Project Path="tests/ECommerce.FlashSaleOrchestrator.Domain.Tests/ECommerce.FlashSaleOrchestrator.Domain.Tests.csproj" />
     <Project Path="tests/ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests/ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.csproj" />
+    <Project Path="tests/ECommerce.FlashSaleOrchestrator.Worker.Tests/ECommerce.FlashSaleOrchestrator.Worker.Tests.csproj" Id="2a1c6601-fb84-4d3e-b97f-47913e3f7532" />
   </Folder>
 </Solution>
