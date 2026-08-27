@@ -1,0 +1,1183 @@
+﻿using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Text.Json;
+using ECommerce.FlashSaleOrchestrator.Api.BackgroundServices;
+using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
+using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Observability;
+using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
+using ECommerce.FlashSaleOrchestrator.Domain.Inventory.Events;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.Kafka;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.Outbox;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.Messaging.Kafka;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.Observability;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Inbox;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Outbox;
+using ECommerce.FlashSaleOrchestrator.Worker.BackgroundServices;
+using ECommerce.FlashSaleOrchestrator.Worker.Messaging.DeadLetter;
+using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
+using ECommerce.FlashSaleOrchestrator.Worker.Resilience;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+
+namespace ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.EndToEnd;
+
+public sealed class StockDepletedPipelineEndToEndTests
+{
+    [Fact]
+    public async Task Pipeline_ShouldPublishConsumeAndProcessStockDepletedEvent()
+    {
+        await using var database =
+            await OutboxTestDatabase.CreateAsync();
+
+        await using var topic =
+            await KafkaTestTopic.CreateAsync();
+
+        var eventId =
+            Guid.NewGuid();
+
+        var productId =
+            Guid.NewGuid();
+
+        const string correlationId =
+            "e2e-correlation-123";
+
+        var occurredAtUtc =
+            DateTime.UtcNow;
+
+        await SeedPendingOutboxMessageAsync(
+            database,
+            eventId,
+            productId,
+            occurredAtUtc,
+            correlationId);
+
+        var handlerProbe =
+            new HandlerProbe();
+
+        await using var serviceProvider =
+            CreateServiceProvider(
+                database,
+                topic,
+                handlerProbe);
+
+        var serviceScopeFactory =
+            serviceProvider.GetRequiredService<
+                IServiceScopeFactory>();
+
+        using var outboxWorker =
+            CreateOutboxWorker(
+                serviceScopeFactory);
+
+        var deadLetterPublisher =
+            new RecordingDeadLetterPublisher();
+
+        using var consumerWorker =
+            CreateConsumerWorker(
+                topic,
+                serviceScopeFactory,
+                deadLetterPublisher,
+                $"flashsale-e2e-{Guid.NewGuid():N}");
+
+        await consumerWorker.StartAsync(
+            CancellationToken.None);
+
+        await outboxWorker.StartAsync(
+            CancellationToken.None);
+
+        ProcessedDelivery processedDelivery;
+
+        try
+        {
+            await WaitUntilAsync(
+                async () =>
+                {
+                    await using var context =
+                        database.CreateContext();
+
+                    return await context
+                        .OutboxMessages
+                        .AsNoTracking()
+                        .AnyAsync(
+                            message =>
+                                message.Id == eventId
+                                && message.ProcessedAtUtc != null);
+                },
+                TimeSpan.FromSeconds(10));
+
+            try
+            {
+                processedDelivery =
+                    await handlerProbe.WaitAsync(
+                        TimeSpan.FromSeconds(15));
+            }
+            catch (TimeoutException)
+                when (deadLetterPublisher.LastMessage is not null)
+            {
+                throw CreateDeadLetterException(
+                    deadLetterPublisher.LastMessage);
+            }
+
+            await WaitUntilAsync(
+                async () =>
+                {
+                    await using var context =
+                        database.CreateContext();
+
+                    return await context
+                        .InboxMessages
+                        .AsNoTracking()
+                        .AnyAsync(
+                            message =>
+                                message.Id == eventId
+                                && message.ProcessedAtUtc != null);
+                },
+                TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            await StopWorkersAsync(
+                outboxWorker,
+                consumerWorker);
+        }
+
+        Assert.Equal(
+            eventId,
+            processedDelivery.IntegrationEvent.EventId);
+
+        Assert.Equal(
+            productId,
+            processedDelivery.IntegrationEvent.ProductId);
+
+        Assert.Equal(
+            StockDepletedIntegrationEvent.EventTypeName,
+            processedDelivery.IntegrationEvent.EventType);
+
+        Assert.Equal(
+            correlationId,
+            processedDelivery.IntegrationEvent.CorrelationId);
+
+        Assert.Equal(
+            correlationId,
+            processedDelivery.ScopedCorrelationId);
+
+        Assert.Equal(
+            DateTimeKind.Utc,
+            processedDelivery.IntegrationEvent.OccurredAtUtc.Kind);
+
+        Assert.Equal(
+            0,
+            deadLetterPublisher.InvocationCount);
+
+        await using var verificationContext =
+            database.CreateContext();
+
+        var persistedOutboxMessage =
+            await verificationContext
+                .OutboxMessages
+                .AsNoTracking()
+                .SingleAsync(
+                    message =>
+                        message.Id == eventId);
+
+        Assert.NotNull(
+            persistedOutboxMessage.ProcessedAtUtc);
+
+        Assert.Equal(
+            correlationId,
+            persistedOutboxMessage.CorrelationId);
+
+        var persistedInboxMessage =
+            await verificationContext
+                .InboxMessages
+                .AsNoTracking()
+                .SingleAsync(
+                    message =>
+                        message.Id == eventId);
+
+        Assert.Equal(
+            StockDepletedIntegrationEvent.EventTypeName,
+            persistedInboxMessage.Type);
+
+        Assert.NotNull(
+            persistedInboxMessage.ProcessedAtUtc);
+
+        Assert.Equal(
+            1,
+            handlerProbe.InvocationCount);
+    }
+
+    [Fact]
+    public async Task Pipeline_ShouldProcessHandlerOnlyOnce_WhenEventIsDeliveredTwice()
+    {
+        await using var database =
+            await OutboxTestDatabase.CreateAsync();
+
+        await using var topic =
+            await KafkaTestTopic.CreateAsync();
+
+        var eventId =
+            Guid.NewGuid();
+
+        var productId =
+            Guid.NewGuid();
+
+        const string correlationId =
+            "e2e-duplicate-correlation-123";
+
+        var occurredAtUtc =
+            DateTime.UtcNow;
+
+        await SeedPendingOutboxMessageAsync(
+            database,
+            eventId,
+            productId,
+            occurredAtUtc,
+            correlationId);
+
+        var handlerProbe =
+            new HandlerProbe();
+
+        var processingResultProbe =
+            new ProcessingResultProbe();
+
+        await using var serviceProvider =
+            CreateServiceProvider(
+                database,
+                topic,
+                handlerProbe,
+                processingResultProbe);
+
+        var serviceScopeFactory =
+            serviceProvider.GetRequiredService<
+                IServiceScopeFactory>();
+
+        using var outboxWorker =
+            CreateOutboxWorker(
+                serviceScopeFactory);
+
+        var deadLetterPublisher =
+            new RecordingDeadLetterPublisher();
+
+        using var consumerWorker =
+            CreateConsumerWorker(
+                topic,
+                serviceScopeFactory,
+                deadLetterPublisher,
+                $"flashsale-e2e-duplicate-{Guid.NewGuid():N}");
+
+        await consumerWorker.StartAsync(
+            CancellationToken.None);
+
+        await outboxWorker.StartAsync(
+            CancellationToken.None);
+
+        ProcessingObservation firstProcessing;
+        ProcessingObservation secondProcessing;
+
+        try
+        {
+            try
+            {
+                firstProcessing =
+                    await processingResultProbe.WaitForFirstAsync(
+                        TimeSpan.FromSeconds(15));
+            }
+            catch (TimeoutException)
+                when (deadLetterPublisher.LastMessage is not null)
+            {
+                throw CreateDeadLetterException(
+                    deadLetterPublisher.LastMessage);
+            }
+
+            Assert.Equal(
+                eventId,
+                firstProcessing.EventId);
+
+            Assert.Equal(
+                IntegrationEventProcessingResult.Processed,
+                firstProcessing.Result);
+
+            await WaitUntilAsync(
+                async () =>
+                {
+                    await using var context =
+                        database.CreateContext();
+
+                    return await context
+                        .OutboxMessages
+                        .AsNoTracking()
+                        .AnyAsync(
+                            message =>
+                                message.Id == eventId
+                                && message.ProcessedAtUtc != null);
+                },
+                TimeSpan.FromSeconds(10));
+
+            var duplicateIntegrationEvent =
+                new StockDepletedIntegrationEvent(
+                    eventId,
+                    occurredAtUtc,
+                    productId,
+                    correlationId);
+
+            var eventPublisher =
+                serviceProvider.GetRequiredService<
+                    IEventPublisher>();
+
+            await eventPublisher.PublishAsync(
+                duplicateIntegrationEvent);
+
+            try
+            {
+                secondProcessing =
+                    await processingResultProbe.WaitForSecondAsync(
+                        TimeSpan.FromSeconds(15));
+            }
+            catch (TimeoutException)
+                when (deadLetterPublisher.LastMessage is not null)
+            {
+                throw CreateDeadLetterException(
+                    deadLetterPublisher.LastMessage);
+            }
+        }
+        finally
+        {
+            await StopWorkersAsync(
+                outboxWorker,
+                consumerWorker);
+        }
+
+        Assert.Equal(
+            eventId,
+            secondProcessing.EventId);
+
+        Assert.Equal(
+            IntegrationEventProcessingResult.AlreadyProcessed,
+            secondProcessing.Result);
+
+        Assert.Equal(
+            1,
+            handlerProbe.InvocationCount);
+
+        Assert.Equal(
+            0,
+            deadLetterPublisher.InvocationCount);
+
+        await using var verificationContext =
+            database.CreateContext();
+
+        var persistedOutboxMessage =
+            await verificationContext
+                .OutboxMessages
+                .AsNoTracking()
+                .SingleAsync(
+                    message =>
+                        message.Id == eventId);
+
+        Assert.NotNull(
+            persistedOutboxMessage.ProcessedAtUtc);
+
+        Assert.Equal(
+            correlationId,
+            persistedOutboxMessage.CorrelationId);
+
+        var inboxMessages =
+            await verificationContext
+                .InboxMessages
+                .AsNoTracking()
+                .Where(
+                    message =>
+                        message.Id == eventId)
+                .ToListAsync();
+
+        Assert.Single(
+            inboxMessages);
+
+        Assert.Equal(
+            StockDepletedIntegrationEvent.EventTypeName,
+            inboxMessages[0].Type);
+
+        Assert.NotNull(
+            inboxMessages[0].ProcessedAtUtc);
+    }
+
+    [Fact]
+    public async Task Pipeline_ShouldRetryAndPublishToDeadLetter_WhenHandlerKeepsFailing()
+    {
+        await using var database =
+            await OutboxTestDatabase.CreateAsync();
+
+        await using var topic =
+            await KafkaTestTopic.CreateAsync();
+
+        var eventId =
+            Guid.NewGuid();
+
+        var productId =
+            Guid.NewGuid();
+
+        const string correlationId =
+            "e2e-failure-correlation-123";
+
+        var occurredAtUtc =
+            DateTime.UtcNow;
+
+        await SeedPendingOutboxMessageAsync(
+            database,
+            eventId,
+            productId,
+            occurredAtUtc,
+            correlationId);
+
+        var failureProbe =
+            new FailureProbe();
+
+        await using var serviceProvider =
+            CreateFailureServiceProvider(
+                database,
+                topic,
+                failureProbe);
+
+        var serviceScopeFactory =
+            serviceProvider.GetRequiredService<
+                IServiceScopeFactory>();
+
+        using var outboxWorker =
+            CreateOutboxWorker(
+                serviceScopeFactory);
+
+        var deadLetterPublisher =
+            new RecordingDeadLetterPublisher();
+
+        using var consumerWorker =
+            CreateConsumerWorker(
+                topic,
+                serviceScopeFactory,
+                deadLetterPublisher,
+                $"flashsale-e2e-failure-{Guid.NewGuid():N}");
+
+        await consumerWorker.StartAsync(
+            CancellationToken.None);
+
+        await outboxWorker.StartAsync(
+            CancellationToken.None);
+
+        DeadLetterMessage deadLetterMessage;
+
+        try
+        {
+            await WaitUntilAsync(
+                async () =>
+                {
+                    await using var context =
+                        database.CreateContext();
+
+                    return await context
+                        .OutboxMessages
+                        .AsNoTracking()
+                        .AnyAsync(
+                            message =>
+                                message.Id == eventId
+                                && message.ProcessedAtUtc != null);
+                },
+                TimeSpan.FromSeconds(10));
+
+            deadLetterMessage =
+                await deadLetterPublisher.WaitAsync(
+                    TimeSpan.FromSeconds(15));
+        }
+        finally
+        {
+            await StopWorkersAsync(
+                outboxWorker,
+                consumerWorker);
+        }
+
+        Assert.Equal(
+            3,
+            failureProbe.InvocationCount);
+
+        Assert.Equal(
+            1,
+            deadLetterPublisher.InvocationCount);
+
+        Assert.Equal(
+            eventId,
+            deadLetterMessage.EventId);
+
+        Assert.Equal(
+            StockDepletedIntegrationEvent.EventTypeName,
+            deadLetterMessage.EventType);
+
+        Assert.Equal(
+            correlationId,
+            deadLetterMessage.CorrelationId);
+
+        Assert.Equal(
+            eventId.ToString("D"),
+            deadLetterMessage.OriginalKey);
+
+        Assert.Equal(
+            topic.Name,
+            deadLetterMessage.OriginalTopic);
+
+        Assert.Equal(
+            typeof(InvalidOperationException).FullName,
+            deadLetterMessage.ErrorType);
+
+        Assert.Contains(
+            "Simulated E2E handler failure.",
+            deadLetterMessage.ErrorMessage);
+
+        Assert.All(
+            failureProbe.CorrelationIds,
+            observedCorrelationId =>
+                Assert.Equal(
+                    correlationId,
+                    observedCorrelationId));
+
+        await using var verificationContext =
+            database.CreateContext();
+
+        var persistedOutboxMessage =
+            await verificationContext
+                .OutboxMessages
+                .AsNoTracking()
+                .SingleAsync(
+                    message =>
+                        message.Id == eventId);
+
+        Assert.NotNull(
+            persistedOutboxMessage.ProcessedAtUtc);
+
+        Assert.Equal(
+            correlationId,
+            persistedOutboxMessage.CorrelationId);
+
+        var inboxMessages =
+            await verificationContext
+                .InboxMessages
+                .AsNoTracking()
+                .Where(
+                    message =>
+                        message.Id == eventId)
+                .ToListAsync();
+
+        Assert.Empty(
+            inboxMessages);
+    }
+
+    private static ServiceProvider CreateServiceProvider(
+        OutboxTestDatabase database,
+        KafkaTestTopic topic,
+        HandlerProbe handlerProbe,
+        ProcessingResultProbe? processingResultProbe = null)
+    {
+        var services =
+            new ServiceCollection();
+
+        services.AddLogging();
+
+        services.AddSingleton(
+            handlerProbe);
+
+        services.AddScoped<
+            ICorrelationContext,
+            CorrelationContext>();
+
+        services.AddDbContext<
+            FlashSaleOrchestratorDbContext>(
+            options =>
+                options.UseSqlServer(
+                    database.ConnectionString));
+
+        services.AddSingleton<
+            StockDepletedOutboxMessageMapper>();
+
+        services.AddScoped<
+            OutboxProcessor>();
+
+        services.AddSingleton<
+            IOptions<KafkaPublisherOptions>>(
+            Options.Create(
+                new KafkaPublisherOptions
+                {
+                    BootstrapServers =
+                        topic.BootstrapServers,
+
+                    StockDepletedTopic =
+                        topic.Name
+                }));
+
+        services.AddSingleton<
+            IEventPublisher,
+            KafkaEventPublisher>();
+
+        services.AddScoped<
+            IIntegrationEventHandler<
+                StockDepletedIntegrationEvent>,
+            RecordingStockDepletedHandler>();
+
+        if (processingResultProbe is null)
+        {
+            services.AddScoped<
+                IIntegrationEventProcessor<
+                    StockDepletedIntegrationEvent>,
+                InboxIntegrationEventProcessor<
+                    StockDepletedIntegrationEvent>>();
+        }
+        else
+        {
+            services.AddSingleton(
+                processingResultProbe);
+
+            services.AddScoped<
+                InboxIntegrationEventProcessor<
+                    StockDepletedIntegrationEvent>>();
+
+            services.AddScoped<
+                IIntegrationEventProcessor<
+                    StockDepletedIntegrationEvent>,
+                RecordingIntegrationEventProcessor>();
+        }
+
+        return services.BuildServiceProvider();
+    }
+
+    private static ServiceProvider CreateFailureServiceProvider(
+        OutboxTestDatabase database,
+        KafkaTestTopic topic,
+        FailureProbe failureProbe)
+    {
+        var services =
+            new ServiceCollection();
+
+        services.AddLogging();
+
+        services.AddSingleton(
+            failureProbe);
+
+        services.AddScoped<
+            ICorrelationContext,
+            CorrelationContext>();
+
+        services.AddDbContext<
+            FlashSaleOrchestratorDbContext>(
+            options =>
+                options.UseSqlServer(
+                    database.ConnectionString));
+
+        services.AddSingleton<
+            StockDepletedOutboxMessageMapper>();
+
+        services.AddScoped<
+            OutboxProcessor>();
+
+        services.AddSingleton<
+            IOptions<KafkaPublisherOptions>>(
+            Options.Create(
+                new KafkaPublisherOptions
+                {
+                    BootstrapServers =
+                        topic.BootstrapServers,
+
+                    StockDepletedTopic =
+                        topic.Name
+                }));
+
+        services.AddSingleton<
+            IEventPublisher,
+            KafkaEventPublisher>();
+
+        services.AddScoped<
+            IIntegrationEventHandler<
+                StockDepletedIntegrationEvent>,
+            FailingStockDepletedHandler>();
+
+        services.AddScoped<
+            IIntegrationEventProcessor<
+                StockDepletedIntegrationEvent>,
+            InboxIntegrationEventProcessor<
+                StockDepletedIntegrationEvent>>();
+
+        return services.BuildServiceProvider();
+    }
+
+    private static OutboxPublisherWorker CreateOutboxWorker(
+        IServiceScopeFactory serviceScopeFactory)
+    {
+        return new OutboxPublisherWorker(
+            serviceScopeFactory,
+            Options.Create(
+                new OutboxPublisherOptions
+                {
+                    BatchSize =
+                        10,
+
+                    PollingInterval =
+                        TimeSpan.FromMilliseconds(
+                            100)
+                }),
+            NullLogger<
+                OutboxPublisherWorker>.Instance);
+    }
+
+    private static StockDepletedConsumerWorker CreateConsumerWorker(
+        KafkaTestTopic topic,
+        IServiceScopeFactory serviceScopeFactory,
+        IDeadLetterPublisher deadLetterPublisher,
+        string consumerGroupId)
+    {
+        var consumerOptions =
+            Options.Create(
+                new KafkaConsumerOptions
+                {
+                    BootstrapServers =
+                        topic.BootstrapServers,
+
+                    StockDepletedTopic =
+                        topic.Name,
+
+                    StockDepletedDeadLetterTopic =
+                        $"{topic.Name}.dlq",
+
+                    ConsumerGroupId =
+                        consumerGroupId
+                });
+
+        var retryExecutor =
+            new IntegrationEventRetryExecutor(
+                Options.Create(
+                    new EventProcessingRetryOptions
+                    {
+                        MaxAttempts =
+                            3,
+
+                        InitialDelay =
+                            TimeSpan.Zero
+                    }),
+                NullLogger<
+                    IntegrationEventRetryExecutor>.Instance);
+
+        return new StockDepletedConsumerWorker(
+            consumerOptions,
+            serviceScopeFactory,
+            retryExecutor,
+            deadLetterPublisher,
+            NullLogger<
+                StockDepletedConsumerWorker>.Instance);
+    }
+
+    private static async Task SeedPendingOutboxMessageAsync(
+        OutboxTestDatabase database,
+        Guid eventId,
+        Guid productId,
+        DateTime occurredAtUtc,
+        string correlationId)
+    {
+        Assert.Equal(
+            DateTimeKind.Utc,
+            occurredAtUtc.Kind);
+
+        var payload =
+            JsonSerializer.Serialize(
+                new
+                {
+                    ProductId =
+                        new
+                        {
+                            Value =
+                                productId
+                        }
+                });
+
+        var eventType =
+            typeof(
+                StockDepletedDomainEvent)
+                .FullName
+            ?? nameof(
+                StockDepletedDomainEvent);
+
+        var outboxMessage =
+            new OutboxMessage(
+                eventId,
+                occurredAtUtc,
+                eventType,
+                payload,
+                correlationId);
+
+        await using var context =
+            database.CreateContext();
+
+        context.OutboxMessages.Add(
+            outboxMessage);
+
+        await context.SaveChangesAsync();
+    }
+
+    private static async Task WaitUntilAsync(
+        Func<Task<bool>> condition,
+        TimeSpan timeout)
+    {
+        var stopwatch =
+            Stopwatch.StartNew();
+
+        while (stopwatch.Elapsed < timeout)
+        {
+            if (await condition())
+            {
+                return;
+            }
+
+            await Task.Delay(
+                TimeSpan.FromMilliseconds(
+                    100));
+        }
+
+        throw new TimeoutException(
+            $"Condition was not satisfied within {timeout}.");
+    }
+
+    private static InvalidOperationException CreateDeadLetterException(
+        DeadLetterMessage deadLetterMessage)
+    {
+        return new InvalidOperationException(
+            "Consumer moved the E2E message to dead-letter processing. " +
+            $"ErrorType: {deadLetterMessage.ErrorType}. " +
+            $"ErrorMessage: {deadLetterMessage.ErrorMessage}");
+    }
+
+    private static async Task StopWorkersAsync(
+        OutboxPublisherWorker outboxWorker,
+        StockDepletedConsumerWorker consumerWorker)
+    {
+        using var outboxStopCancellation =
+            new CancellationTokenSource(
+                TimeSpan.FromSeconds(5));
+
+        await outboxWorker.StopAsync(
+            outboxStopCancellation.Token);
+
+        using var consumerStopCancellation =
+            new CancellationTokenSource(
+                TimeSpan.FromSeconds(5));
+
+        await consumerWorker.StopAsync(
+            consumerStopCancellation.Token);
+    }
+
+    private sealed class RecordingStockDepletedHandler
+        : IIntegrationEventHandler<
+            StockDepletedIntegrationEvent>
+    {
+        private readonly ICorrelationContext
+            _correlationContext;
+
+        private readonly HandlerProbe
+            _handlerProbe;
+
+        public RecordingStockDepletedHandler(
+            ICorrelationContext correlationContext,
+            HandlerProbe handlerProbe)
+        {
+            ArgumentNullException.ThrowIfNull(
+                correlationContext);
+
+            ArgumentNullException.ThrowIfNull(
+                handlerProbe);
+
+            _correlationContext =
+                correlationContext;
+
+            _handlerProbe =
+                handlerProbe;
+        }
+
+        public Task HandleAsync(
+            StockDepletedIntegrationEvent integrationEvent,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(
+                integrationEvent);
+
+            _handlerProbe.Record(
+                integrationEvent,
+                _correlationContext.CorrelationId);
+
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FailingStockDepletedHandler
+        : IIntegrationEventHandler<
+            StockDepletedIntegrationEvent>
+    {
+        private readonly ICorrelationContext
+            _correlationContext;
+
+        private readonly FailureProbe
+            _failureProbe;
+
+        public FailingStockDepletedHandler(
+            ICorrelationContext correlationContext,
+            FailureProbe failureProbe)
+        {
+            ArgumentNullException.ThrowIfNull(
+                correlationContext);
+
+            ArgumentNullException.ThrowIfNull(
+                failureProbe);
+
+            _correlationContext =
+                correlationContext;
+
+            _failureProbe =
+                failureProbe;
+        }
+
+        public Task HandleAsync(
+            StockDepletedIntegrationEvent integrationEvent,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(
+                integrationEvent);
+
+            _failureProbe.Record(
+                _correlationContext.CorrelationId);
+
+            throw new InvalidOperationException(
+                "Simulated E2E handler failure.");
+        }
+    }
+
+    private sealed class RecordingIntegrationEventProcessor
+        : IIntegrationEventProcessor<
+            StockDepletedIntegrationEvent>
+    {
+        private readonly InboxIntegrationEventProcessor<
+            StockDepletedIntegrationEvent> _innerProcessor;
+
+        private readonly ProcessingResultProbe
+            _processingResultProbe;
+
+        public RecordingIntegrationEventProcessor(
+            InboxIntegrationEventProcessor<
+                StockDepletedIntegrationEvent> innerProcessor,
+            ProcessingResultProbe processingResultProbe)
+        {
+            ArgumentNullException.ThrowIfNull(
+                innerProcessor);
+
+            ArgumentNullException.ThrowIfNull(
+                processingResultProbe);
+
+            _innerProcessor =
+                innerProcessor;
+
+            _processingResultProbe =
+                processingResultProbe;
+        }
+
+        public async Task<IntegrationEventProcessingResult> ProcessAsync(
+            StockDepletedIntegrationEvent integrationEvent,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(
+                integrationEvent);
+
+            var result =
+                await _innerProcessor.ProcessAsync(
+                    integrationEvent,
+                    cancellationToken);
+
+            _processingResultProbe.Record(
+                new ProcessingObservation(
+                    integrationEvent.EventId,
+                    result));
+
+            return result;
+        }
+    }
+
+    private sealed class HandlerProbe
+    {
+        private readonly TaskCompletionSource<
+            ProcessedDelivery> _processed =
+                new(
+                    TaskCreationOptions
+                        .RunContinuationsAsynchronously);
+
+        private int
+            _invocationCount;
+
+        public int InvocationCount =>
+            Volatile.Read(
+                ref _invocationCount);
+
+        public void Record(
+            StockDepletedIntegrationEvent integrationEvent,
+            string scopedCorrelationId)
+        {
+            Interlocked.Increment(
+                ref _invocationCount);
+
+            _processed.TrySetResult(
+                new ProcessedDelivery(
+                    integrationEvent,
+                    scopedCorrelationId));
+        }
+
+        public Task<ProcessedDelivery> WaitAsync(
+            TimeSpan timeout)
+        {
+            return _processed
+                .Task
+                .WaitAsync(
+                    timeout);
+        }
+    }
+
+    private sealed class FailureProbe
+    {
+        private readonly ConcurrentQueue<string>
+            _correlationIds =
+                new();
+
+        private int
+            _invocationCount;
+
+        public int InvocationCount =>
+            Volatile.Read(
+                ref _invocationCount);
+
+        public IReadOnlyCollection<string> CorrelationIds =>
+            _correlationIds.ToArray();
+
+        public void Record(
+            string correlationId)
+        {
+            Interlocked.Increment(
+                ref _invocationCount);
+
+            _correlationIds.Enqueue(
+                correlationId);
+        }
+    }
+
+    private sealed class ProcessingResultProbe
+    {
+        private readonly TaskCompletionSource<
+            ProcessingObservation> _firstProcessing =
+                new(
+                    TaskCreationOptions
+                        .RunContinuationsAsynchronously);
+
+        private readonly TaskCompletionSource<
+            ProcessingObservation> _secondProcessing =
+                new(
+                    TaskCreationOptions
+                        .RunContinuationsAsynchronously);
+
+        private int
+            _processingCount;
+
+        public void Record(
+            ProcessingObservation observation)
+        {
+            var processingNumber =
+                Interlocked.Increment(
+                    ref _processingCount);
+
+            switch (processingNumber)
+            {
+                case 1:
+                    _firstProcessing.TrySetResult(
+                        observation);
+                    break;
+
+                case 2:
+                    _secondProcessing.TrySetResult(
+                        observation);
+                    break;
+            }
+        }
+
+        public Task<ProcessingObservation> WaitForFirstAsync(
+            TimeSpan timeout)
+        {
+            return _firstProcessing
+                .Task
+                .WaitAsync(
+                    timeout);
+        }
+
+        public Task<ProcessingObservation> WaitForSecondAsync(
+            TimeSpan timeout)
+        {
+            return _secondProcessing
+                .Task
+                .WaitAsync(
+                    timeout);
+        }
+    }
+
+    private sealed record ProcessedDelivery(
+        StockDepletedIntegrationEvent IntegrationEvent,
+        string ScopedCorrelationId);
+
+    private sealed record ProcessingObservation(
+        Guid EventId,
+        IntegrationEventProcessingResult Result);
+
+    private sealed class RecordingDeadLetterPublisher
+        : IDeadLetterPublisher
+    {
+        private readonly TaskCompletionSource<
+            DeadLetterMessage> _published =
+                new(
+                    TaskCreationOptions
+                        .RunContinuationsAsynchronously);
+
+        private int
+            _invocationCount;
+
+        public int InvocationCount =>
+            Volatile.Read(
+                ref _invocationCount);
+
+        public DeadLetterMessage?
+            LastMessage
+        { get; private set; }
+
+        public Task PublishAsync(
+            DeadLetterMessage message,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(
+                message);
+
+            LastMessage =
+                message;
+
+            Interlocked.Increment(
+                ref _invocationCount);
+
+            _published.TrySetResult(
+                message);
+
+            return Task.CompletedTask;
+        }
+
+        public Task<DeadLetterMessage> WaitAsync(
+            TimeSpan timeout)
+        {
+            return _published
+                .Task
+                .WaitAsync(
+                    timeout);
+        }
+    }
+}
