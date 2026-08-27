@@ -1,33 +1,32 @@
-﻿namespace ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Outbox;
+namespace ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Inbox;
 
-public sealed class OutboxMessage
+public sealed class InboxMessage
 {
-    private OutboxMessage()
+    private InboxMessage()
     {
     }
 
-    public OutboxMessage(
+    public InboxMessage(
         Guid id,
         DateTime occurredAtUtc,
-        string type,
-        string payload,
-        string correlationId)
+        string type)
     {
         if (id == Guid.Empty)
         {
             throw new ArgumentException(
-                "Outbox message id cannot be empty.",
+                "Inbox message id cannot be empty.",
                 nameof(id));
+        }
+
+        if (occurredAtUtc.Kind != DateTimeKind.Utc)
+        {
+            throw new ArgumentException(
+                "Occurred timestamp must be UTC.",
+                nameof(occurredAtUtc));
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(
             type);
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(
-            payload);
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(
-            correlationId);
 
         Id =
             id;
@@ -37,12 +36,6 @@ public sealed class OutboxMessage
 
         Type =
             type;
-
-        Payload =
-            payload;
-
-        CorrelationId =
-            correlationId;
     }
 
     public Guid Id { get; private set; }
@@ -52,19 +45,12 @@ public sealed class OutboxMessage
     public string Type { get; private set; } =
         null!;
 
-    public string Payload { get; private set; } =
-        null!;
-
-    public string CorrelationId { get; private set; } =
-        null!;
-
     public DateTime? ProcessedAtUtc { get; private set; }
 
     public void MarkProcessed(
         DateTime processedAtUtc)
     {
-        if (processedAtUtc.Kind !=
-            DateTimeKind.Utc)
+        if (processedAtUtc.Kind != DateTimeKind.Utc)
         {
             throw new ArgumentException(
                 "Processed timestamp must be UTC.",
@@ -74,7 +60,7 @@ public sealed class OutboxMessage
         if (ProcessedAtUtc.HasValue)
         {
             throw new InvalidOperationException(
-                "Outbox message has already been processed.");
+                "Inbox message has already been processed.");
         }
 
         ProcessedAtUtc =

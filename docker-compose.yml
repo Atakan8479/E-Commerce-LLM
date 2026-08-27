@@ -87,6 +87,12 @@ services:
         --replicas 1
         --if-not-exists
         -X brokers=redpanda:9092
+        &&
+        rpk topic create inventory.stock-depleted.dlq
+        --partitions 1
+        --replicas 1
+        --if-not-exists
+        -X brokers=redpanda:9092
 
 
 volumes:

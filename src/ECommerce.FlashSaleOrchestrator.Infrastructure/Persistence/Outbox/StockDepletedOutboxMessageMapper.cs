@@ -31,7 +31,8 @@ public sealed class StockDepletedOutboxMessageMapper
         ArgumentNullException.ThrowIfNull(
             outboxMessage);
 
-        if (!CanMap(outboxMessage))
+        if (!CanMap(
+            outboxMessage))
         {
             throw new InvalidOperationException(
                 $"Outbox message type '{outboxMessage.Type}' cannot be mapped " +
@@ -56,9 +57,36 @@ public sealed class StockDepletedOutboxMessageMapper
                 $"Outbox message '{outboxMessage.Id}' contains an invalid ProductId.");
         }
 
+        var occurredAtUtc =
+            NormalizeUtc(
+                outboxMessage.OccurredAtUtc);
+
         return new StockDepletedIntegrationEvent(
             outboxMessage.Id,
-            outboxMessage.OccurredAtUtc,
-            productId);
+            occurredAtUtc,
+            productId,
+            outboxMessage.CorrelationId);
+    }
+
+    private static DateTime NormalizeUtc(
+        DateTime timestamp)
+    {
+        return timestamp.Kind switch
+        {
+            DateTimeKind.Utc =>
+                timestamp,
+
+            DateTimeKind.Unspecified =>
+                DateTime.SpecifyKind(
+                    timestamp,
+                    DateTimeKind.Utc),
+
+            DateTimeKind.Local =>
+                timestamp.ToUniversalTime(),
+
+            _ =>
+                throw new InvalidOperationException(
+                    "Unsupported DateTime kind.")
+        };
     }
 }

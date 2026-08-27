@@ -1,6 +1,8 @@
+using System.Text;
 using System.Text.Json;
 using Confluent.Kafka;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
+using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Observability;
 using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
 using Microsoft.Extensions.Options;
 
@@ -13,8 +15,11 @@ public sealed class KafkaEventPublisher
     private static readonly JsonSerializerOptions SerializerOptions =
         new(JsonSerializerDefaults.Web);
 
-    private readonly KafkaPublisherOptions _options;
-    private readonly IProducer<string, string> _producer;
+    private readonly KafkaPublisherOptions
+        _options;
+
+    private readonly IProducer<string, string>
+        _producer;
 
     public KafkaEventPublisher(
         IOptions<KafkaPublisherOptions> options)
@@ -59,11 +64,23 @@ public sealed class KafkaEventPublisher
             ResolveDestination(
                 integrationEvent);
 
+        var correlationId =
+            ResolveCorrelationId(
+                integrationEvent);
+
         var payload =
             JsonSerializer.Serialize(
                 integrationEvent,
                 integrationEvent.GetType(),
                 SerializerOptions);
+
+        var headers =
+            new Headers();
+
+        headers.Add(
+            CorrelationMetadata.HeaderName,
+            Encoding.UTF8.GetBytes(
+                correlationId));
 
         var message =
             new Message<string, string>
@@ -72,7 +89,10 @@ public sealed class KafkaEventPublisher
                     destination.Key,
 
                 Value =
-                    payload
+                    payload,
+
+                Headers =
+                    headers
             };
 
         await _producer.ProduceAsync(
@@ -81,21 +101,57 @@ public sealed class KafkaEventPublisher
             cancellationToken);
     }
 
-    private (string Topic, string Key) ResolveDestination<TEvent>(
+    private static string ResolveCorrelationId<TEvent>(
+        TEvent integrationEvent)
+        where TEvent : class
+    {
+        if (integrationEvent is not
+            IIntegrationEvent integrationMessage)
+        {
+            throw new InvalidOperationException(
+                $"Integration event type " +
+                $"'{integrationEvent.GetType().FullName}' " +
+                $"does not implement {nameof(IIntegrationEvent)}.");
+        }
+
+        if (string.IsNullOrWhiteSpace(
+            integrationMessage.CorrelationId))
+        {
+            throw new InvalidOperationException(
+                "Integration event correlation id cannot be empty.");
+        }
+
+        if (integrationMessage.CorrelationId.Length >
+            CorrelationMetadata.MaxLength)
+        {
+            throw new InvalidOperationException(
+                $"Integration event correlation id cannot exceed " +
+                $"{CorrelationMetadata.MaxLength} characters.");
+        }
+
+        return integrationMessage.CorrelationId;
+    }
+
+    private (string Topic, string Key)
+        ResolveDestination<TEvent>(
         TEvent integrationEvent)
         where TEvent : class
     {
         return integrationEvent switch
         {
-            StockDepletedIntegrationEvent stockDepletedEvent =>
+            StockDepletedIntegrationEvent
+                stockDepletedEvent =>
                 (
                     _options.StockDepletedTopic,
-                    stockDepletedEvent.EventId.ToString("D")
+                    stockDepletedEvent.EventId
+                        .ToString("D")
                 ),
 
             _ =>
                 throw new InvalidOperationException(
-                    $"Integration event type '{integrationEvent.GetType().FullName}' is not supported.")
+                    $"Integration event type " +
+                    $"'{integrationEvent.GetType().FullName}' " +
+                    $"is not supported.")
         };
     }
 

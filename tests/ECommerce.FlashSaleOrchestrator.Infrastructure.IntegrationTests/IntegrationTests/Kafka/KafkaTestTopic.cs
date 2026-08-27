@@ -1,7 +1,7 @@
 using Confluent.Kafka;
 using Confluent.Kafka.Admin;
 
-namespace ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.Outbox;
+namespace ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.Kafka;
 
 internal sealed class KafkaTestTopic
     : IAsyncDisposable
