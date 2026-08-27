@@ -3,6 +3,7 @@
 public sealed record DeadLetterMessage(
     Guid? EventId,
     string? EventType,
+    string? CorrelationId,
     string? OriginalKey,
     string OriginalTopic,
     int OriginalPartition,

@@ -1,9 +1,11 @@
+using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
+using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Observability;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.Observability;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Inbox;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Outbox;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Inbox;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure;
 
@@ -19,7 +21,12 @@ public static class DependencyInjection
         ArgumentException.ThrowIfNullOrWhiteSpace(
             connectionString);
 
-        services.AddDbContext<FlashSaleOrchestratorDbContext>(
+        services.AddScoped<
+            ICorrelationContext,
+            CorrelationContext>();
+
+        services.AddDbContext<
+            FlashSaleOrchestratorDbContext>(
             options =>
                 options.UseSqlServer(
                     connectionString));

@@ -5,7 +5,8 @@ namespace ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventor
 public sealed record StockDepletedIntegrationEvent(
     Guid EventId,
     DateTime OccurredAtUtc,
-    Guid ProductId)
+    Guid ProductId,
+    string CorrelationId)
     : IIntegrationEvent
 {
     public const string EventTypeName =

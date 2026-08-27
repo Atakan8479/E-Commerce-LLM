@@ -1,7 +1,10 @@
-﻿using System.Text.Json;
+﻿using System.Text;
+using System.Text.Json;
 using Confluent.Kafka;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
+using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Observability;
 using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.Observability;
 using ECommerce.FlashSaleOrchestrator.Worker.BackgroundServices;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.DeadLetter;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
@@ -34,6 +37,10 @@ public sealed class StockDepletedDeadLetterIntegrationTests
 
         var services =
             new ServiceCollection();
+
+        services.AddScoped<
+            ICorrelationContext,
+            CorrelationContext>();
 
         services.AddScoped<
             IIntegrationEventProcessor<
@@ -121,11 +128,15 @@ public sealed class StockDepletedDeadLetterIntegrationTests
 
         try
         {
+            const string correlationId =
+                "correlation-test-123";
+
             integrationEvent =
                 new StockDepletedIntegrationEvent(
                     Guid.NewGuid(),
                     DateTime.UtcNow,
-                    Guid.NewGuid());
+                    Guid.NewGuid(),
+                    correlationId);
 
             using var producer =
                 new ProducerBuilder<string, string>(
@@ -144,6 +155,14 @@ public sealed class StockDepletedDeadLetterIntegrationTests
                     integrationEvent,
                     SerializerOptions);
 
+            var sourceHeaders =
+                new Headers();
+
+            sourceHeaders.Add(
+                CorrelationMetadata.HeaderName,
+                Encoding.UTF8.GetBytes(
+                    correlationId));
+
             await producer.ProduceAsync(
                 sourceTopic.Name,
                 new Message<string, string>
@@ -153,7 +172,10 @@ public sealed class StockDepletedDeadLetterIntegrationTests
                             "D"),
 
                     Value =
-                        originalPayload
+                        originalPayload,
+
+                    Headers =
+                        sourceHeaders
                 });
 
             var deadLetterResult =
@@ -187,6 +209,10 @@ public sealed class StockDepletedDeadLetterIntegrationTests
             Assert.Equal(
                 integrationEvent.EventType,
                 deadLetterMessage.EventType);
+
+            Assert.Equal(
+                correlationId,
+                deadLetterMessage.CorrelationId);
 
             Assert.Equal(
                 integrationEvent.EventId.ToString(
@@ -224,6 +250,19 @@ public sealed class StockDepletedDeadLetterIntegrationTests
             Assert.True(
                 deadLetterMessage.FailedAtUtc <=
                 DateTime.UtcNow);
+
+            var correlationHeader =
+                deadLetterResult.Message.Headers
+                    .GetLastBytes(
+                        CorrelationMetadata.HeaderName);
+
+            Assert.NotNull(
+                correlationHeader);
+
+            Assert.Equal(
+                correlationId,
+                Encoding.UTF8.GetString(
+                    correlationHeader));
 
             Assert.Equal(
                 3,
@@ -287,6 +326,10 @@ public sealed class StockDepletedDeadLetterIntegrationTests
             new ServiceCollection();
 
         services.AddScoped<
+            ICorrelationContext,
+            CorrelationContext>();
+
+        services.AddScoped<
             IIntegrationEventProcessor<
                 StockDepletedIntegrationEvent>>(
             _ => processor);
@@ -341,16 +384,28 @@ public sealed class StockDepletedDeadLetterIntegrationTests
                 NullLogger<
                     StockDepletedConsumerWorker>.Instance);
 
+        const string correlationId =
+            "dlq-publish-failure-correlation-123";
+
         var integrationEvent =
             new StockDepletedIntegrationEvent(
                 Guid.NewGuid(),
                 DateTime.UtcNow,
-                Guid.NewGuid());
+                Guid.NewGuid(),
+                correlationId);
 
         var originalPayload =
             JsonSerializer.Serialize(
                 integrationEvent,
                 SerializerOptions);
+
+        var sourceHeaders =
+            new Headers();
+
+        sourceHeaders.Add(
+            CorrelationMetadata.HeaderName,
+            Encoding.UTF8.GetBytes(
+                correlationId));
 
         await worker.StartAsync(
             CancellationToken.None);
@@ -376,7 +431,10 @@ public sealed class StockDepletedDeadLetterIntegrationTests
                             "D"),
 
                     Value =
-                        originalPayload
+                        originalPayload,
+
+                    Headers =
+                        sourceHeaders
                 });
         }
 
@@ -390,6 +448,21 @@ public sealed class StockDepletedDeadLetterIntegrationTests
         Assert.Equal(
             1,
             deadLetterPublisher.InvocationCount);
+
+        Assert.NotNull(
+            deadLetterPublisher.LastMessage);
+
+        Assert.Equal(
+            integrationEvent.EventId,
+            deadLetterPublisher.LastMessage.EventId);
+
+        Assert.Equal(
+            integrationEvent.EventType,
+            deadLetterPublisher.LastMessage.EventType);
+
+        Assert.Equal(
+            correlationId,
+            deadLetterPublisher.LastMessage.CorrelationId);
 
         try
         {
@@ -448,6 +521,10 @@ public sealed class StockDepletedDeadLetterIntegrationTests
             integrationEvent.ProductId,
             replayedEvent.ProductId);
 
+        Assert.Equal(
+            correlationId,
+            replayedEvent.CorrelationId);
+
         verificationConsumer.Close();
     }
 
@@ -468,6 +545,10 @@ public sealed class StockDepletedDeadLetterIntegrationTests
 
         var services =
             new ServiceCollection();
+
+        services.AddScoped<
+            ICorrelationContext,
+            CorrelationContext>();
 
         services.AddScoped<
             IIntegrationEventProcessor<
@@ -557,6 +638,9 @@ public sealed class StockDepletedDeadLetterIntegrationTests
         const string malformedPayload =
             "{ this-is-not-valid-json";
 
+        const string correlationId =
+            "poison-correlation-123";
+
         try
         {
             using var producer =
@@ -571,6 +655,14 @@ public sealed class StockDepletedDeadLetterIntegrationTests
                     })
                     .Build();
 
+            var sourceHeaders =
+                new Headers();
+
+            sourceHeaders.Add(
+                CorrelationMetadata.HeaderName,
+                Encoding.UTF8.GetBytes(
+                    correlationId));
+
             await producer.ProduceAsync(
                 sourceTopic.Name,
                 new Message<string, string>
@@ -579,7 +671,10 @@ public sealed class StockDepletedDeadLetterIntegrationTests
                         originalKey,
 
                     Value =
-                        malformedPayload
+                        malformedPayload,
+
+                    Headers =
+                        sourceHeaders
                 });
 
             var deadLetterResult =
@@ -607,6 +702,10 @@ public sealed class StockDepletedDeadLetterIntegrationTests
 
             Assert.Null(
                 deadLetterMessage.EventType);
+
+            Assert.Equal(
+                correlationId,
+                deadLetterMessage.CorrelationId);
 
             Assert.Equal(
                 originalKey,
@@ -643,6 +742,19 @@ public sealed class StockDepletedDeadLetterIntegrationTests
             Assert.True(
                 deadLetterMessage.FailedAtUtc <=
                 DateTime.UtcNow);
+
+            var correlationHeader =
+                deadLetterResult.Message.Headers
+                    .GetLastBytes(
+                        CorrelationMetadata.HeaderName);
+
+            Assert.NotNull(
+                correlationHeader);
+
+            Assert.Equal(
+                correlationId,
+                Encoding.UTF8.GetString(
+                    correlationHeader));
 
             Assert.Equal(
                 0,
@@ -735,6 +847,10 @@ public sealed class StockDepletedDeadLetterIntegrationTests
 
         public int InvocationCount { get; private set; }
 
+        public DeadLetterMessage?
+            LastMessage
+        { get; private set; }
+
         public Task PublishAsync(
             DeadLetterMessage message,
             CancellationToken cancellationToken = default)
@@ -743,6 +859,9 @@ public sealed class StockDepletedDeadLetterIntegrationTests
                 message);
 
             InvocationCount++;
+
+            LastMessage =
+                message;
 
             _publishAttempted.TrySetResult(
                 true);

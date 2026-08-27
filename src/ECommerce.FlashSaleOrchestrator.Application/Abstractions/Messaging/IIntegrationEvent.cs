@@ -7,4 +7,6 @@ public interface IIntegrationEvent
     DateTime OccurredAtUtc { get; }
 
     string EventType { get; }
+
+    string CorrelationId { get; }
 }

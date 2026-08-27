@@ -25,7 +25,8 @@ public sealed class OutboxMessageTests
                 Guid.NewGuid(),
                 occurredAtUtc,
                 "TestEvent",
-                "{}");
+                "{}",
+                "correlation-test-123");
 
         message.MarkProcessed(processedAtUtc);
 
@@ -42,7 +43,8 @@ public sealed class OutboxMessageTests
                 Guid.NewGuid(),
                 DateTime.UtcNow,
                 "TestEvent",
-                "{}");
+                "{}",
+                "correlation-test-123");
 
         var nonUtcTimestamp =
             DateTime.SpecifyKind(
@@ -65,7 +67,8 @@ public sealed class OutboxMessageTests
                 Guid.NewGuid(),
                 DateTime.UtcNow,
                 "TestEvent",
-                "{}");
+                "{}",
+                "correlation-test-123");
 
         message.MarkProcessed(
             DateTime.UtcNow);
@@ -73,5 +76,37 @@ public sealed class OutboxMessageTests
         Assert.Throws<InvalidOperationException>(
             () => message.MarkProcessed(
                 DateTime.UtcNow));
+    }
+
+    [Fact]
+    public void Constructor_ShouldPreserveCorrelationId()
+    {
+        const string correlationId =
+            "request-correlation-123";
+
+        var message =
+            new OutboxMessage(
+                Guid.NewGuid(),
+                DateTime.UtcNow,
+                "TestEvent",
+                "{}",
+                correlationId);
+
+        Assert.Equal(
+            correlationId,
+            message.CorrelationId);
+    }
+
+    [Fact]
+    public void Constructor_ShouldRejectEmptyCorrelationId()
+    {
+        Assert.Throws<ArgumentException>(
+            () =>
+                new OutboxMessage(
+                    Guid.NewGuid(),
+                    DateTime.UtcNow,
+                    "TestEvent",
+                    "{}",
+                    string.Empty));
     }
 }

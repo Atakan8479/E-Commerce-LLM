@@ -237,10 +237,15 @@ public sealed class InboxIntegrationEventProcessorTests
     private static StockDepletedIntegrationEvent
         CreateIntegrationEvent()
     {
+
+        const string correlationId =
+            "inbox-correlation-123";
+
         return new StockDepletedIntegrationEvent(
             Guid.NewGuid(),
             DateTime.UtcNow,
-            Guid.NewGuid());
+            Guid.NewGuid(),
+            correlationId);
     }
 
     private sealed class RecordingIntegrationEventHandler

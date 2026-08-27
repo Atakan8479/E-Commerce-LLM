@@ -10,7 +10,8 @@ public sealed class OutboxMessage
         Guid id,
         DateTime occurredAtUtc,
         string type,
-        string payload)
+        string payload,
+        string correlationId)
     {
         if (id == Guid.Empty)
         {
@@ -19,28 +20,51 @@ public sealed class OutboxMessage
                 nameof(id));
         }
 
-        ArgumentException.ThrowIfNullOrWhiteSpace(type);
-        ArgumentException.ThrowIfNullOrWhiteSpace(payload);
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            type);
 
-        Id = id;
-        OccurredAtUtc = occurredAtUtc;
-        Type = type;
-        Payload = payload;
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            payload);
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            correlationId);
+
+        Id =
+            id;
+
+        OccurredAtUtc =
+            occurredAtUtc;
+
+        Type =
+            type;
+
+        Payload =
+            payload;
+
+        CorrelationId =
+            correlationId;
     }
 
     public Guid Id { get; private set; }
 
     public DateTime OccurredAtUtc { get; private set; }
 
-    public string Type { get; private set; } = null!;
+    public string Type { get; private set; } =
+        null!;
 
-    public string Payload { get; private set; } = null!;
+    public string Payload { get; private set; } =
+        null!;
+
+    public string CorrelationId { get; private set; } =
+        null!;
 
     public DateTime? ProcessedAtUtc { get; private set; }
 
-    public void MarkProcessed(DateTime processedAtUtc)
+    public void MarkProcessed(
+        DateTime processedAtUtc)
     {
-        if (processedAtUtc.Kind != DateTimeKind.Utc)
+        if (processedAtUtc.Kind !=
+            DateTimeKind.Utc)
         {
             throw new ArgumentException(
                 "Processed timestamp must be UTC.",
@@ -53,6 +77,7 @@ public sealed class OutboxMessage
                 "Outbox message has already been processed.");
         }
 
-        ProcessedAtUtc = processedAtUtc;
+        ProcessedAtUtc =
+            processedAtUtc;
     }
 }

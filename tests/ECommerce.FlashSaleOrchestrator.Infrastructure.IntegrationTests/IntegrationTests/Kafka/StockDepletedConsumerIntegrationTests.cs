@@ -1,7 +1,10 @@
+using System.Text;
 using System.Text.Json;
 using Confluent.Kafka;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
+using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Observability;
 using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.Observability;
 using ECommerce.FlashSaleOrchestrator.Worker.BackgroundServices;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.DeadLetter;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
@@ -26,16 +29,23 @@ public sealed class StockDepletedConsumerIntegrationTests
         var consumerGroupId =
             $"flashsale-consumer-tests-{Guid.NewGuid():N}";
 
-        var processor =
-            new RecordingIntegrationEventProcessor();
+        var processingProbe =
+            new ProcessingProbe();
 
         var services =
             new ServiceCollection();
 
+        services.AddSingleton(
+            processingProbe);
+
+        services.AddScoped<
+            ICorrelationContext,
+            CorrelationContext>();
+
         services.AddScoped<
             IIntegrationEventProcessor<
-                StockDepletedIntegrationEvent>>(
-            _ => processor);
+                StockDepletedIntegrationEvent>,
+            RecordingIntegrationEventProcessor>();
 
         await using var serviceProvider =
             services.BuildServiceProvider();
@@ -92,11 +102,15 @@ public sealed class StockDepletedConsumerIntegrationTests
 
         try
         {
+            const string correlationId =
+                "consumer-correlation-123";
+
             var integrationEvent =
                 new StockDepletedIntegrationEvent(
                     Guid.NewGuid(),
                     DateTime.UtcNow,
-                    Guid.NewGuid());
+                    Guid.NewGuid(),
+                    correlationId);
 
             using var producer =
                 new ProducerBuilder<string, string>(
@@ -115,6 +129,14 @@ public sealed class StockDepletedConsumerIntegrationTests
                     integrationEvent,
                     SerializerOptions);
 
+            var headers =
+                new Headers();
+
+            headers.Add(
+                CorrelationMetadata.HeaderName,
+                Encoding.UTF8.GetBytes(
+                    correlationId));
+
             await producer.ProduceAsync(
                 topic.Name,
                 new Message<string, string>
@@ -124,24 +146,35 @@ public sealed class StockDepletedConsumerIntegrationTests
                             "D"),
 
                     Value =
-                        payload
+                        payload,
+
+                    Headers =
+                        headers
                 });
 
-            var processedEvent =
-                await processor.WaitAsync(
+            var processedMessage =
+                await processingProbe.WaitAsync(
                     TimeSpan.FromSeconds(15));
 
             Assert.Equal(
                 integrationEvent.EventId,
-                processedEvent.EventId);
+                processedMessage.IntegrationEvent.EventId);
 
             Assert.Equal(
                 integrationEvent.ProductId,
-                processedEvent.ProductId);
+                processedMessage.IntegrationEvent.ProductId);
 
             Assert.Equal(
                 integrationEvent.OccurredAtUtc,
-                processedEvent.OccurredAtUtc);
+                processedMessage.IntegrationEvent.OccurredAtUtc);
+
+            Assert.Equal(
+                correlationId,
+                processedMessage.IntegrationEvent.CorrelationId);
+
+            Assert.Equal(
+                correlationId,
+                processedMessage.ScopedCorrelationId);
         }
         finally
         {
@@ -188,24 +221,64 @@ public sealed class StockDepletedConsumerIntegrationTests
         : IIntegrationEventProcessor<
             StockDepletedIntegrationEvent>
     {
-        private readonly TaskCompletionSource<
-            StockDepletedIntegrationEvent> _messageReceived =
-                new(
-                    TaskCreationOptions
-                        .RunContinuationsAsynchronously);
+        private readonly ICorrelationContext
+            _correlationContext;
+
+        private readonly ProcessingProbe
+            _processingProbe;
+
+        public RecordingIntegrationEventProcessor(
+            ICorrelationContext correlationContext,
+            ProcessingProbe processingProbe)
+        {
+            ArgumentNullException.ThrowIfNull(
+                correlationContext);
+
+            ArgumentNullException.ThrowIfNull(
+                processingProbe);
+
+            _correlationContext =
+                correlationContext;
+
+            _processingProbe =
+                processingProbe;
+        }
 
         public Task<IntegrationEventProcessingResult> ProcessAsync(
             StockDepletedIntegrationEvent integrationEvent,
             CancellationToken cancellationToken = default)
         {
-            _messageReceived.TrySetResult(
+            ArgumentNullException.ThrowIfNull(
                 integrationEvent);
+
+            _processingProbe.Record(
+                integrationEvent,
+                _correlationContext.CorrelationId);
 
             return Task.FromResult(
                 IntegrationEventProcessingResult.Processed);
         }
+    }
 
-        public Task<StockDepletedIntegrationEvent> WaitAsync(
+    private sealed class ProcessingProbe
+    {
+        private readonly TaskCompletionSource<
+            ProcessedMessage> _messageReceived =
+                new(
+                    TaskCreationOptions
+                        .RunContinuationsAsynchronously);
+
+        public void Record(
+            StockDepletedIntegrationEvent integrationEvent,
+            string scopedCorrelationId)
+        {
+            _messageReceived.TrySetResult(
+                new ProcessedMessage(
+                    integrationEvent,
+                    scopedCorrelationId));
+        }
+
+        public Task<ProcessedMessage> WaitAsync(
             TimeSpan timeout)
         {
             return _messageReceived
@@ -214,6 +287,10 @@ public sealed class StockDepletedConsumerIntegrationTests
                     timeout);
         }
     }
+
+    private sealed record ProcessedMessage(
+        StockDepletedIntegrationEvent IntegrationEvent,
+        string ScopedCorrelationId);
 
     private sealed class RecordingDeadLetterPublisher
         : IDeadLetterPublisher

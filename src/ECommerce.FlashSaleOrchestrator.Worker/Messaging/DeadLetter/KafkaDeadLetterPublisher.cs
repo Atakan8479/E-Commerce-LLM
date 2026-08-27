@@ -1,5 +1,7 @@
-﻿using System.Text.Json;
+﻿using System.Text;
+using System.Text.Json;
 using Confluent.Kafka;
+using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Observability;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -67,42 +69,98 @@ public sealed class KafkaDeadLetterPublisher
         ArgumentNullException.ThrowIfNull(
             message);
 
+        var correlationId =
+            NormalizeCorrelationId(
+                message.CorrelationId);
+
+        var messageToPublish =
+            message with
+            {
+                CorrelationId =
+                    correlationId
+            };
+
         var payload =
             JsonSerializer.Serialize(
-                message,
+                messageToPublish,
                 SerializerOptions);
 
         var messageKey =
             ResolveMessageKey(
-                message);
+                messageToPublish);
+
+        var kafkaMessage =
+            new Message<string, string>
+            {
+                Key =
+                    messageKey,
+
+                Value =
+                    payload
+            };
+
+        if (correlationId is not null)
+        {
+            kafkaMessage.Headers =
+                new Headers();
+
+            kafkaMessage.Headers.Add(
+                CorrelationMetadata.HeaderName,
+                Encoding.UTF8.GetBytes(
+                    correlationId));
+        }
 
         var result =
             await _producer.ProduceAsync(
                 _options.StockDepletedDeadLetterTopic,
-                new Message<string, string>
-                {
-                    Key =
-                        messageKey,
-
-                    Value =
-                        payload
-                },
+                kafkaMessage,
                 cancellationToken);
 
         _logger.LogWarning(
             "Message published to dead-letter topic. " +
             "EventId: {EventId}, " +
             "EventType: {EventType}, " +
+            "CorrelationId: {CorrelationId}, " +
             "OriginalTopic: {OriginalTopic}, " +
             "DeadLetterTopic: {DeadLetterTopic}, " +
             "Partition: {Partition}, " +
             "Offset: {Offset}",
-            message.EventId,
-            message.EventType,
-            message.OriginalTopic,
+            messageToPublish.EventId,
+            messageToPublish.EventType,
+            messageToPublish.CorrelationId,
+            messageToPublish.OriginalTopic,
             _options.StockDepletedDeadLetterTopic,
             result.Partition,
             result.Offset);
+    }
+
+    private static string? NormalizeCorrelationId(
+        string? correlationId)
+    {
+        if (correlationId is null)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(
+            correlationId))
+        {
+            throw new InvalidOperationException(
+                "Dead-letter correlation id cannot be empty.");
+        }
+
+        var normalizedCorrelationId =
+            correlationId.Trim();
+
+        if (normalizedCorrelationId.Length >
+            CorrelationMetadata.MaxLength)
+        {
+            throw new InvalidOperationException(
+                "Dead-letter correlation id cannot exceed " +
+                $"{CorrelationMetadata.MaxLength} characters.");
+        }
+
+        return normalizedCorrelationId;
     }
 
     private static string ResolveMessageKey(

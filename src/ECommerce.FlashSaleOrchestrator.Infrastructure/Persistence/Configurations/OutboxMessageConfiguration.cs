@@ -10,33 +10,50 @@ public sealed class OutboxMessageConfiguration
     public void Configure(
         EntityTypeBuilder<OutboxMessage> builder)
     {
-        builder.ToTable("OutboxMessages");
+        builder.ToTable(
+            "OutboxMessages");
 
         builder.HasKey(
-            outboxMessage => outboxMessage.Id);
+            outboxMessage =>
+                outboxMessage.Id);
 
         builder.Property(
-                outboxMessage => outboxMessage.Id)
+                outboxMessage =>
+                    outboxMessage.Id)
             .ValueGeneratedNever();
 
         builder.Property(
-                outboxMessage => outboxMessage.OccurredAtUtc)
+                outboxMessage =>
+                    outboxMessage.OccurredAtUtc)
             .IsRequired();
 
         builder.Property(
-                outboxMessage => outboxMessage.Type)
-            .HasMaxLength(500)
+                outboxMessage =>
+                    outboxMessage.Type)
+            .HasMaxLength(
+                500)
             .IsRequired();
 
         builder.Property(
-                outboxMessage => outboxMessage.Payload)
-            .HasColumnType("nvarchar(max)")
+                outboxMessage =>
+                    outboxMessage.Payload)
+            .HasColumnType(
+                "nvarchar(max)")
             .IsRequired();
 
         builder.Property(
-            outboxMessage => outboxMessage.ProcessedAtUtc);
+                outboxMessage =>
+                    outboxMessage.CorrelationId)
+            .HasMaxLength(
+                128)
+            .IsRequired();
+
+        builder.Property(
+            outboxMessage =>
+                outboxMessage.ProcessedAtUtc);
 
         builder.HasIndex(
-            outboxMessage => outboxMessage.ProcessedAtUtc);
+            outboxMessage =>
+                outboxMessage.ProcessedAtUtc);
     }
 }

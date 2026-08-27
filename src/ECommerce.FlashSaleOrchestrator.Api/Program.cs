@@ -2,6 +2,7 @@ using ECommerce.FlashSaleOrchestrator.Api.BackgroundServices;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
 using ECommerce.FlashSaleOrchestrator.Infrastructure;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Messaging.Kafka;
+using ECommerce.FlashSaleOrchestrator.Api.Middleware;
 
 var builder =
     WebApplication.CreateBuilder(args);
@@ -72,6 +73,9 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
+
+app.UseMiddleware<
+    CorrelationIdMiddleware>();
 
 app.UseHttpsRedirection();
 

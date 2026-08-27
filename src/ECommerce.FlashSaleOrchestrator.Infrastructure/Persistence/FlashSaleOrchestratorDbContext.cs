@@ -1,12 +1,14 @@
 ﻿using System.Text.Json;
+using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Observability;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Persistence;
 using ECommerce.FlashSaleOrchestrator.Domain.Abstractions;
 using ECommerce.FlashSaleOrchestrator.Domain.Carts;
 using ECommerce.FlashSaleOrchestrator.Domain.FlashSales;
 using ECommerce.FlashSaleOrchestrator.Domain.Inventory;
 using ECommerce.FlashSaleOrchestrator.Domain.Products;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Outbox;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.Observability;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Inbox;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Outbox;
 using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence;
@@ -15,9 +17,28 @@ public sealed class FlashSaleOrchestratorDbContext
     : DbContext,
       IUnitOfWork
 {
+    private readonly ICorrelationContext
+        _correlationContext;
+
     public FlashSaleOrchestratorDbContext(
-        DbContextOptions<FlashSaleOrchestratorDbContext> options)
+        DbContextOptions<
+            FlashSaleOrchestratorDbContext> options,
+        ICorrelationContext correlationContext)
         : base(options)
+    {
+        ArgumentNullException.ThrowIfNull(
+            correlationContext);
+
+        _correlationContext =
+            correlationContext;
+    }
+
+    public FlashSaleOrchestratorDbContext(
+        DbContextOptions<
+            FlashSaleOrchestratorDbContext> options)
+        : this(
+            options,
+            new CorrelationContext())
     {
     }
 
@@ -42,7 +63,8 @@ public sealed class FlashSaleOrchestratorDbContext
     protected override void OnModelCreating(
         ModelBuilder modelBuilder)
     {
-        base.OnModelCreating(modelBuilder);
+        base.OnModelCreating(
+            modelBuilder);
 
         modelBuilder.ApplyConfigurationsFromAssembly(
             typeof(FlashSaleOrchestratorDbContext)
@@ -55,20 +77,25 @@ public sealed class FlashSaleOrchestratorDbContext
         var aggregatesWithDomainEvents =
             ChangeTracker
                 .Entries<IHasDomainEvents>()
-                .Select(entry => entry.Entity)
-                .Where(aggregate =>
-                    aggregate.DomainEvents.Count > 0)
+                .Select(
+                    entry =>
+                        entry.Entity)
+                .Where(
+                    aggregate =>
+                        aggregate.DomainEvents.Count > 0)
                 .ToArray();
 
         var domainEvents =
             aggregatesWithDomainEvents
-                .SelectMany(aggregate =>
-                    aggregate.DomainEvents)
+                .SelectMany(
+                    aggregate =>
+                        aggregate.DomainEvents)
                 .ToArray();
 
         var outboxMessages =
             domainEvents
-                .Select(CreateOutboxMessage)
+                .Select(
+                    CreateOutboxMessage)
                 .ToArray();
 
         if (outboxMessages.Length > 0)
@@ -111,7 +138,7 @@ public sealed class FlashSaleOrchestratorDbContext
             cancellationToken);
     }
 
-    private static OutboxMessage CreateOutboxMessage(
+    private OutboxMessage CreateOutboxMessage(
         IDomainEvent domainEvent)
     {
         ArgumentNullException.ThrowIfNull(
@@ -133,6 +160,7 @@ public sealed class FlashSaleOrchestratorDbContext
             Guid.NewGuid(),
             DateTime.UtcNow,
             type,
-            payload);
+            payload,
+            _correlationContext.CorrelationId);
     }
 }

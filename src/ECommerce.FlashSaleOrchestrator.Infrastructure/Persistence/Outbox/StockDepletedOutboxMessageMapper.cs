@@ -31,7 +31,8 @@ public sealed class StockDepletedOutboxMessageMapper
         ArgumentNullException.ThrowIfNull(
             outboxMessage);
 
-        if (!CanMap(outboxMessage))
+        if (!CanMap(
+            outboxMessage))
         {
             throw new InvalidOperationException(
                 $"Outbox message type '{outboxMessage.Type}' cannot be mapped " +
@@ -59,6 +60,7 @@ public sealed class StockDepletedOutboxMessageMapper
         return new StockDepletedIntegrationEvent(
             outboxMessage.Id,
             outboxMessage.OccurredAtUtc,
-            productId);
+            productId,
+            outboxMessage.CorrelationId);
     }
 }

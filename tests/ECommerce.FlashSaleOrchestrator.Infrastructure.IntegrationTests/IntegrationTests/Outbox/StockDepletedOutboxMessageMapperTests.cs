@@ -35,12 +35,16 @@ public sealed class StockDepletedOutboxMessageMapperTests
                     }
                 });
 
+        const string correlationId =
+            "mapper-correlation-123";
+
         var message =
             new OutboxMessage(
                 eventId,
                 occurredAtUtc,
                 typeof(StockDepletedDomainEvent).FullName!,
-                payload);
+                payload,
+                correlationId);
 
         var mapper =
             new StockDepletedOutboxMessageMapper();
@@ -59,6 +63,10 @@ public sealed class StockDepletedOutboxMessageMapperTests
         Assert.Equal(
             productId,
             integrationEvent.ProductId);
+
+        Assert.Equal(
+            correlationId,
+            integrationEvent.CorrelationId);
     }
 
     [Fact]
@@ -111,7 +119,8 @@ public sealed class StockDepletedOutboxMessageMapperTests
                 Guid.NewGuid(),
                 DateTime.UtcNow,
                 typeof(StockDepletedDomainEvent).FullName!,
-                "{}");
+                "{}",
+                "correlation-test-123");
 
         var mapper =
             new StockDepletedOutboxMessageMapper();
@@ -140,6 +149,7 @@ public sealed class StockDepletedOutboxMessageMapperTests
             Guid.NewGuid(),
             DateTime.UtcNow,
             type,
-            payload);
+            payload,
+            "correlation-test-123");
     }
 }

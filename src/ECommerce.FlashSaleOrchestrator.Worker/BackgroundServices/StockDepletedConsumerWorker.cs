@@ -1,6 +1,8 @@
+using System.Text;
 using System.Text.Json;
 using Confluent.Kafka;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
+using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Observability;
 using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.DeadLetter;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
@@ -146,17 +148,24 @@ public sealed class StockDepletedConsumerWorker
                     StockDepletedIntegrationEvent
                         integrationEvent;
 
+                    string correlationId;
+
                     try
                     {
                         integrationEvent =
                             Deserialize(
                                 consumeResult.Message.Value);
+
+                        correlationId =
+                            ResolveCorrelationId(
+                                consumeResult,
+                                integrationEvent);
                     }
-                    catch (Exception deserializationException)
+                    catch (Exception messageValidationException)
                     {
                         await PublishPoisonMessageToDeadLetterAsync(
                             consumeResult,
-                            deserializationException,
+                            messageValidationException,
                             stoppingToken);
 
                         _consumer.Commit(
@@ -176,62 +185,75 @@ public sealed class StockDepletedConsumerWorker
                         continue;
                     }
 
-                    try
+                    using (_logger.BeginScope(
+                               new Dictionary<string, object>
+                               {
+                                   ["CorrelationId"] =
+                                       correlationId,
+
+                                   ["EventId"] =
+                                       integrationEvent.EventId
+                               }))
                     {
-                        var processingResult =
-                            await _retryExecutor.ExecuteAsync(
-                                cancellationToken =>
-                                    ProcessIntegrationEventAsync(
-                                        integrationEvent,
-                                        cancellationToken),
+                        try
+                        {
+                            var processingResult =
+                                await _retryExecutor.ExecuteAsync(
+                                    cancellationToken =>
+                                        ProcessIntegrationEventAsync(
+                                            integrationEvent,
+                                            correlationId,
+                                            cancellationToken),
+                                    integrationEvent.EventId,
+                                    integrationEvent.EventType,
+                                    stoppingToken);
+
+                            _consumer.Commit(
+                                consumeResult);
+
+                            _logger.LogInformation(
+                                "Stock depleted event acknowledged. " +
+                                "EventId: {EventId}, " +
+                                "ProcessingResult: {ProcessingResult}, " +
+                                "Topic: {Topic}, " +
+                                "Partition: {Partition}, " +
+                                "Offset: {Offset}",
                                 integrationEvent.EventId,
-                                integrationEvent.EventType,
+                                processingResult,
+                                consumeResult.Topic,
+                                consumeResult.Partition,
+                                consumeResult.Offset);
+                        }
+                        catch (OperationCanceledException)
+                            when (stoppingToken.IsCancellationRequested)
+                        {
+                            break;
+                        }
+                        catch (Exception processingException)
+                        {
+                            await PublishToDeadLetterAsync(
+                                consumeResult,
+                                integrationEvent,
+                                correlationId,
+                                processingException,
                                 stoppingToken);
 
-                        _consumer.Commit(
-                            consumeResult);
+                            _consumer.Commit(
+                                consumeResult);
 
-                        _logger.LogInformation(
-                            "Stock depleted event acknowledged. " +
-                            "EventId: {EventId}, " +
-                            "ProcessingResult: {ProcessingResult}, " +
-                            "Topic: {Topic}, " +
-                            "Partition: {Partition}, " +
-                            "Offset: {Offset}",
-                            integrationEvent.EventId,
-                            processingResult,
-                            consumeResult.Topic,
-                            consumeResult.Partition,
-                            consumeResult.Offset);
-                    }
-                    catch (OperationCanceledException)
-                        when (stoppingToken.IsCancellationRequested)
-                    {
-                        break;
-                    }
-                    catch (Exception processingException)
-                    {
-                        await PublishToDeadLetterAsync(
-                            consumeResult,
-                            integrationEvent,
-                            processingException,
-                            stoppingToken);
-
-                        _consumer.Commit(
-                            consumeResult);
-
-                        _logger.LogWarning(
-                            "Stock depleted event moved to " +
-                            "dead-letter topic and original " +
-                            "offset committed. " +
-                            "EventId: {EventId}, " +
-                            "Topic: {Topic}, " +
-                            "Partition: {Partition}, " +
-                            "Offset: {Offset}",
-                            integrationEvent.EventId,
-                            consumeResult.Topic,
-                            consumeResult.Partition,
-                            consumeResult.Offset);
+                            _logger.LogWarning(
+                                "Stock depleted event moved to " +
+                                "dead-letter topic and original " +
+                                "offset committed. " +
+                                "EventId: {EventId}, " +
+                                "Topic: {Topic}, " +
+                                "Partition: {Partition}, " +
+                                "Offset: {Offset}",
+                                integrationEvent.EventId,
+                                consumeResult.Topic,
+                                consumeResult.Partition,
+                                consumeResult.Offset);
+                        }
                     }
                 }
                 catch (OperationCanceledException)
@@ -268,11 +290,20 @@ public sealed class StockDepletedConsumerWorker
     private async Task<IntegrationEventProcessingResult>
         ProcessIntegrationEventAsync(
         StockDepletedIntegrationEvent integrationEvent,
+        string correlationId,
         CancellationToken cancellationToken)
     {
         await using var scope =
             _serviceScopeFactory
                 .CreateAsyncScope();
+
+        var correlationContext =
+            scope.ServiceProvider
+                .GetRequiredService<
+                    ICorrelationContext>();
+
+        correlationContext.SetCorrelationId(
+            correlationId);
 
         var processor =
             scope.ServiceProvider
@@ -288,6 +319,7 @@ public sealed class StockDepletedConsumerWorker
     private async Task PublishToDeadLetterAsync(
         ConsumeResult<string, string> consumeResult,
         StockDepletedIntegrationEvent integrationEvent,
+        string correlationId,
         Exception exception,
         CancellationToken cancellationToken)
     {
@@ -295,6 +327,7 @@ public sealed class StockDepletedConsumerWorker
             new DeadLetterMessage(
                 integrationEvent.EventId,
                 integrationEvent.EventType,
+                correlationId,
                 consumeResult.Message.Key,
                 consumeResult.Topic,
                 consumeResult.Partition.Value,
@@ -310,6 +343,7 @@ public sealed class StockDepletedConsumerWorker
             cancellationToken);
     }
 
+
     private async Task PublishPoisonMessageToDeadLetterAsync(
         ConsumeResult<string, string> consumeResult,
         Exception exception,
@@ -319,13 +353,18 @@ public sealed class StockDepletedConsumerWorker
             Guid.TryParse(
                 consumeResult.Message.Key,
                 out var parsedEventId)
-                ? parsedEventId
-                : null;
+                    ? parsedEventId
+                    : null;
+
+        var correlationId =
+            TryResolveCorrelationIdFromHeader(
+                consumeResult);
 
         var deadLetterMessage =
             new DeadLetterMessage(
                 eventId,
                 null,
+                correlationId,
                 consumeResult.Message.Key,
                 consumeResult.Topic,
                 consumeResult.Partition.Value,
@@ -339,6 +378,126 @@ public sealed class StockDepletedConsumerWorker
         await _deadLetterPublisher.PublishAsync(
             deadLetterMessage,
             cancellationToken);
+    }
+
+    private static string? TryResolveCorrelationIdFromHeader(
+    ConsumeResult<string, string> consumeResult)
+    {
+        var headers =
+            consumeResult.Message.Headers;
+
+        if (headers is null ||
+            !headers.TryGetLastBytes(
+                CorrelationMetadata.HeaderName,
+                out var correlationHeader))
+        {
+            return null;
+        }
+
+        if (correlationHeader is null ||
+            correlationHeader.Length == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            var correlationId =
+                Encoding.UTF8.GetString(
+                    correlationHeader);
+
+            if (string.IsNullOrWhiteSpace(
+                correlationId))
+            {
+                return null;
+            }
+
+            var normalizedCorrelationId =
+                correlationId.Trim();
+
+            if (normalizedCorrelationId.Length >
+                CorrelationMetadata.MaxLength)
+            {
+                return null;
+            }
+
+            return normalizedCorrelationId;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string ResolveCorrelationId(
+        ConsumeResult<string, string> consumeResult,
+        StockDepletedIntegrationEvent integrationEvent)
+    {
+        var payloadCorrelationId =
+            NormalizeCorrelationId(
+                integrationEvent.CorrelationId,
+                "event payload");
+
+        var headers =
+            consumeResult.Message.Headers;
+
+        if (headers is null ||
+            !headers.TryGetLastBytes(
+                CorrelationMetadata.HeaderName,
+                out var correlationHeader))
+        {
+            return payloadCorrelationId;
+        }
+
+        if (correlationHeader is null ||
+            correlationHeader.Length == 0)
+        {
+            throw new InvalidOperationException(
+                "Kafka correlation id header cannot be empty.");
+        }
+
+        var headerCorrelationId =
+            NormalizeCorrelationId(
+                Encoding.UTF8.GetString(
+                    correlationHeader),
+                "Kafka header");
+
+        if (!string.Equals(
+                headerCorrelationId,
+                payloadCorrelationId,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Kafka correlation id header does not match " +
+                "the integration event correlation id.");
+        }
+
+        return headerCorrelationId;
+    }
+
+    private static string NormalizeCorrelationId(
+        string? correlationId,
+        string source)
+    {
+        if (string.IsNullOrWhiteSpace(
+            correlationId))
+        {
+            throw new InvalidOperationException(
+                $"Correlation id from {source} cannot be empty.");
+        }
+
+        var normalizedCorrelationId =
+            correlationId.Trim();
+
+        if (normalizedCorrelationId.Length >
+            CorrelationMetadata.MaxLength)
+        {
+            throw new InvalidOperationException(
+                $"Correlation id from {source} cannot exceed " +
+                $"{CorrelationMetadata.MaxLength} characters.");
+        }
+
+        return normalizedCorrelationId;
     }
 
     private static StockDepletedIntegrationEvent Deserialize(

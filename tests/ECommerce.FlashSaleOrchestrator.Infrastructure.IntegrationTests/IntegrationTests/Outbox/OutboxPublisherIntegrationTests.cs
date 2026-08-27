@@ -12,6 +12,8 @@ using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Outbox;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using System.Text;
+using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Observability;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.Outbox;
 
@@ -32,6 +34,9 @@ public sealed class OutboxPublisherIntegrationTests
         var productId =
             Guid.NewGuid();
 
+        const string correlationId =
+            "outbox-publisher-correlation-123";
+
         var occurredAtUtc =
             new DateTime(
                 2026,
@@ -46,7 +51,8 @@ public sealed class OutboxPublisherIntegrationTests
             database,
             eventId,
             productId,
-            occurredAtUtc);
+            occurredAtUtc,
+            correlationId);
 
         var services =
             new ServiceCollection();
@@ -186,6 +192,25 @@ public sealed class OutboxPublisherIntegrationTests
                     "occurredAtUtc")
                 .GetDateTime());
 
+        Assert.Equal(
+            correlationId,
+            root.GetProperty(
+                    "correlationId")
+                .GetString());
+
+        var correlationHeader =
+            consumedMessage.Message.Headers
+                .GetLastBytes(
+                    CorrelationMetadata.HeaderName);
+
+        Assert.NotNull(
+            correlationHeader);
+
+        Assert.Equal(
+            correlationId,
+            Encoding.UTF8.GetString(
+                correlationHeader));
+
         var duplicateMessage =
             consumer.Consume(
                 TimeSpan.FromSeconds(1));
@@ -250,11 +275,15 @@ public sealed class OutboxPublisherIntegrationTests
                 0,
                 DateTimeKind.Utc);
 
+        var correlationId =
+            "outbox-publisher-correlation-123";
+
         await SeedPendingMessageAsync(
             database,
             eventId,
             productId,
-            occurredAtUtc);
+            occurredAtUtc,
+            correlationId);
 
         await using var context =
             database.CreateContext();
@@ -290,7 +319,8 @@ public sealed class OutboxPublisherIntegrationTests
         OutboxTestDatabase database,
         Guid eventId,
         Guid productId,
-        DateTime occurredAtUtc)
+        DateTime occurredAtUtc,
+        string correlationId)
     {
         var payload =
             JsonSerializer.Serialize(
@@ -316,7 +346,8 @@ public sealed class OutboxPublisherIntegrationTests
                 eventId,
                 occurredAtUtc,
                 eventType,
-                payload);
+                payload,
+                correlationId);
 
         await using var context =
             database.CreateContext();
