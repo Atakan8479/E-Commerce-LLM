@@ -28,5 +28,14 @@ internal sealed class ProductConfiguration
                 new ProductNameValueConverter())
             .HasMaxLength(ProductName.MaxLength)
             .IsRequired();
+
+        builder.Property(
+                product => product.Category)
+            .HasConversion(
+                new ProductCategoryValueConverter())
+            .HasMaxLength(ProductCategory.MaxLength)
+            .HasDefaultValueSql(
+                "N'uncategorized'")
+            .IsRequired();
     }
 }

@@ -28,6 +28,17 @@ internal sealed class ProductNameValueConverter
     }
 }
 
+internal sealed class ProductCategoryValueConverter
+    : ValueConverter<ProductCategory, string>
+{
+    public ProductCategoryValueConverter()
+        : base(
+            category => category.Value,
+            value => ProductCategory.From(value))
+    {
+    }
+}
+
 internal sealed class StockQuantityValueConverter
     : ValueConverter<StockQuantity, int>
 {

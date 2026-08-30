@@ -3,6 +3,7 @@ using ECommerce.FlashSaleOrchestrator.Domain.Inventory;
 using ECommerce.FlashSaleOrchestrator.Domain.Products;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Repositories;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.AlternativeCandidates;
 using System.Text.Json;
 using ECommerce.FlashSaleOrchestrator.Domain.Inventory.Events;
 using Microsoft.Data.SqlClient;
@@ -61,6 +62,237 @@ public sealed class SqlServerPersistenceTests
         Assert.Equal(
             5,
             inventoryItem.AvailableQuantity.Value);
+    }
+
+    [Fact]
+    public async Task AlternativeCandidateProvider_ShouldFilterByCategoryOrderAndLimitCandidates()
+    {
+        await using var database =
+            await TestDatabase.CreateAsync();
+
+        var excludedProductId =
+            ProductId.New();
+
+        var highStockProductId =
+            ProductId.New();
+
+        var mediumStockProductId =
+            ProductId.New();
+
+        var lowStockProductId =
+            ProductId.New();
+
+        var unavailableProductId =
+            ProductId.New();
+
+        var differentCategoryProductId =
+            ProductId.New();
+
+        var mouseCategory =
+            ProductCategory.From(
+                "Mouse");
+
+        var keyboardCategory =
+            ProductCategory.From(
+                "Keyboard");
+
+        await using (var arrangeContext =
+            database.CreateContext())
+        {
+            arrangeContext.Products.AddRange(
+                Product.Create(
+                    excludedProductId,
+                    ProductName.From(
+                        "Excluded Mouse"),
+                    mouseCategory),
+                Product.Create(
+                    highStockProductId,
+                    ProductName.From(
+                        "High Stock Mouse"),
+                    mouseCategory),
+                Product.Create(
+                    mediumStockProductId,
+                    ProductName.From(
+                        "Medium Stock Mouse"),
+                    mouseCategory),
+                Product.Create(
+                    lowStockProductId,
+                    ProductName.From(
+                        "Low Stock Mouse"),
+                    mouseCategory),
+                Product.Create(
+                    unavailableProductId,
+                    ProductName.From(
+                        "Unavailable Mouse"),
+                    mouseCategory),
+                Product.Create(
+                    differentCategoryProductId,
+                    ProductName.From(
+                        "Mechanical Keyboard"),
+                    keyboardCategory));
+
+            arrangeContext.InventoryItems.AddRange(
+                InventoryItem.Create(
+                    excludedProductId,
+                    StockQuantity.From(100)),
+                InventoryItem.Create(
+                    highStockProductId,
+                    StockQuantity.From(20)),
+                InventoryItem.Create(
+                    mediumStockProductId,
+                    StockQuantity.From(12)),
+                InventoryItem.Create(
+                    lowStockProductId,
+                    StockQuantity.From(5)),
+                InventoryItem.Create(
+                    unavailableProductId,
+                    StockQuantity.Zero),
+                InventoryItem.Create(
+                    differentCategoryProductId,
+                    StockQuantity.From(100)));
+
+            await arrangeContext.SaveChangesAsync();
+        }
+
+        await using var queryContext =
+            database.CreateContext();
+
+        var provider =
+            new SqlAlternativeCandidateProvider(
+                queryContext);
+
+        var allCandidates =
+            await provider.GetCandidatesAsync(
+                excludedProductId.Value,
+                10);
+
+        Assert.Equal(
+            3,
+            allCandidates.Count);
+
+        Assert.Collection(
+            allCandidates,
+            candidate =>
+            {
+                Assert.Equal(
+                    highStockProductId.Value,
+                    candidate.ProductId);
+
+                Assert.Equal(
+                    "High Stock Mouse",
+                    candidate.Name);
+
+                Assert.Equal(
+                    "mouse",
+                    candidate.Category);
+
+                Assert.Equal(
+                    20,
+                    candidate.AvailableQuantity);
+            },
+            candidate =>
+            {
+                Assert.Equal(
+                    mediumStockProductId.Value,
+                    candidate.ProductId);
+
+                Assert.Equal(
+                    "mouse",
+                    candidate.Category);
+
+                Assert.Equal(
+                    12,
+                    candidate.AvailableQuantity);
+            },
+            candidate =>
+            {
+                Assert.Equal(
+                    lowStockProductId.Value,
+                    candidate.ProductId);
+
+                Assert.Equal(
+                    "mouse",
+                    candidate.Category);
+
+                Assert.Equal(
+                    5,
+                    candidate.AvailableQuantity);
+            });
+
+        Assert.DoesNotContain(
+            allCandidates,
+            candidate =>
+                candidate.ProductId ==
+                differentCategoryProductId.Value);
+
+        var limitedCandidates =
+            await provider.GetCandidatesAsync(
+                excludedProductId.Value,
+                2);
+
+        Assert.Equal(
+            2,
+            limitedCandidates.Count);
+
+        Assert.Equal(
+            highStockProductId.Value,
+            limitedCandidates[0].ProductId);
+
+        Assert.Equal(
+            mediumStockProductId.Value,
+            limitedCandidates[1].ProductId);
+    }
+
+    [Fact]
+    public async Task AlternativeCandidateProvider_ShouldReturnEmpty_WhenDepletedProductIsUncategorized()
+    {
+        await using var database =
+            await TestDatabase.CreateAsync();
+
+        var depletedProductId =
+            ProductId.New();
+
+        var candidateProductId =
+            ProductId.New();
+
+        await using (var arrangeContext =
+            database.CreateContext())
+        {
+            arrangeContext.Products.AddRange(
+                Product.Create(
+                    depletedProductId,
+                    ProductName.From(
+                        "Uncategorized Depleted Product")),
+                Product.Create(
+                    candidateProductId,
+                    ProductName.From(
+                        "Uncategorized Candidate Product")));
+
+            arrangeContext.InventoryItems.AddRange(
+                InventoryItem.Create(
+                    depletedProductId,
+                    StockQuantity.Zero),
+                InventoryItem.Create(
+                    candidateProductId,
+                    StockQuantity.From(100)));
+
+            await arrangeContext.SaveChangesAsync();
+        }
+
+        await using var queryContext =
+            database.CreateContext();
+
+        var provider =
+            new SqlAlternativeCandidateProvider(
+                queryContext);
+
+        var candidates =
+            await provider.GetCandidatesAsync(
+                depletedProductId.Value,
+                10);
+
+        Assert.Empty(
+            candidates);
     }
 
     [Fact]
@@ -389,5 +621,203 @@ public sealed class SqlServerPersistenceTests
 
             await context.Database.EnsureDeletedAsync();
         }
+    }
+
+    [Fact]
+    public async Task AlternativeCandidateProvider_ShouldReturnEmpty_WhenDepletedProductDoesNotExist()
+    {
+        await using var database =
+            await TestDatabase.CreateAsync();
+
+        var candidateProductId =
+            ProductId.New();
+
+        await using (var arrangeContext =
+            database.CreateContext())
+        {
+            arrangeContext.Products.Add(
+                Product.Create(
+                    candidateProductId,
+                    ProductName.From(
+                        "Existing Mouse"),
+                    ProductCategory.From(
+                        "Mouse")));
+
+            arrangeContext.InventoryItems.Add(
+                InventoryItem.Create(
+                    candidateProductId,
+                    StockQuantity.From(50)));
+
+            await arrangeContext.SaveChangesAsync();
+        }
+
+        await using var queryContext =
+            database.CreateContext();
+
+        var provider =
+            new SqlAlternativeCandidateProvider(
+                queryContext);
+
+        var candidates =
+            await provider.GetCandidatesAsync(
+                Guid.NewGuid(),
+                10);
+
+        Assert.Empty(
+            candidates);
+    }
+
+    [Fact]
+    public async Task AlternativeCandidateProvider_ShouldThrow_WhenDepletedProductIdIsEmpty()
+    {
+        await using var database =
+            await TestDatabase.CreateAsync();
+
+        await using var queryContext =
+            database.CreateContext();
+
+        var provider =
+            new SqlAlternativeCandidateProvider(
+                queryContext);
+
+        var exception =
+            await Assert.ThrowsAsync<ArgumentException>(
+                () =>
+                    provider.GetCandidatesAsync(
+                        Guid.Empty,
+                        10));
+
+        Assert.Equal(
+            "depletedProductId",
+            exception.ParamName);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(-10)]
+    public async Task AlternativeCandidateProvider_ShouldThrow_WhenLimitIsNotPositive(
+    int limit)
+    {
+        await using var database =
+            await TestDatabase.CreateAsync();
+
+        await using var queryContext =
+            database.CreateContext();
+
+        var provider =
+            new SqlAlternativeCandidateProvider(
+                queryContext);
+
+        var exception =
+            await Assert.ThrowsAsync<
+                ArgumentOutOfRangeException>(
+                () =>
+                    provider.GetCandidatesAsync(
+                        Guid.NewGuid(),
+                        limit));
+
+        Assert.Equal(
+            "limit",
+            exception.ParamName);
+    }
+
+    [Fact]
+    public async Task AlternativeCandidateProvider_ShouldReturnSameOrder_WhenCandidateStockIsEqual()
+    {
+        await using var database =
+            await TestDatabase.CreateAsync();
+
+        var depletedProductId =
+            ProductId.New();
+
+        var firstCandidateId =
+            ProductId.New();
+
+        var secondCandidateId =
+            ProductId.New();
+
+        var thirdCandidateId =
+            ProductId.New();
+
+        var mouseCategory =
+            ProductCategory.From(
+                "Mouse");
+
+        await using (var arrangeContext =
+            database.CreateContext())
+        {
+            arrangeContext.Products.AddRange(
+                Product.Create(
+                    depletedProductId,
+                    ProductName.From(
+                        "Depleted Mouse"),
+                    mouseCategory),
+                Product.Create(
+                    firstCandidateId,
+                    ProductName.From(
+                        "Mouse A"),
+                    mouseCategory),
+                Product.Create(
+                    secondCandidateId,
+                    ProductName.From(
+                        "Mouse B"),
+                    mouseCategory),
+                Product.Create(
+                    thirdCandidateId,
+                    ProductName.From(
+                        "Mouse C"),
+                    mouseCategory));
+
+            arrangeContext.InventoryItems.AddRange(
+                InventoryItem.Create(
+                    depletedProductId,
+                    StockQuantity.Zero),
+                InventoryItem.Create(
+                    firstCandidateId,
+                    StockQuantity.From(10)),
+                InventoryItem.Create(
+                    secondCandidateId,
+                    StockQuantity.From(10)),
+                InventoryItem.Create(
+                    thirdCandidateId,
+                    StockQuantity.From(10)));
+
+            await arrangeContext.SaveChangesAsync();
+        }
+
+        await using var queryContext =
+            database.CreateContext();
+
+        var provider =
+            new SqlAlternativeCandidateProvider(
+                queryContext);
+
+        var firstResult =
+            await provider.GetCandidatesAsync(
+                depletedProductId.Value,
+                2);
+
+        var secondResult =
+            await provider.GetCandidatesAsync(
+                depletedProductId.Value,
+                2);
+
+        Assert.Equal(
+            2,
+            firstResult.Count);
+
+        Assert.Equal(
+            firstResult
+                .Select(candidate => candidate.ProductId),
+            secondResult
+                .Select(candidate => candidate.ProductId));
+
+        Assert.All(
+            firstResult,
+            candidate =>
+                Assert.Equal(
+                    10,
+                    candidate.AvailableQuantity));
     }
 }

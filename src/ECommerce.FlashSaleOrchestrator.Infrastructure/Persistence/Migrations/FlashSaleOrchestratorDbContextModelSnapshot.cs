@@ -68,10 +68,19 @@ namespace ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Migrations
                     b.ToTable("InventoryItems", (string)null);
                 });
 
-            modelBuilder.Entity("ECommerce.FlashSaleOrchestrator.Domain.Products.Product", b =>
+            modelBuilder.Entity(
+                "ECommerce.FlashSaleOrchestrator.Domain.Products.Product",
+                b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasDefaultValueSql("N'uncategorized'");
 
                     b.Property<string>("Name")
                         .IsRequired()
