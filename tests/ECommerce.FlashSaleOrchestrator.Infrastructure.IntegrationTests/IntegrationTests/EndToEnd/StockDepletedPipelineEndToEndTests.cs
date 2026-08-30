@@ -17,6 +17,12 @@ using ECommerce.FlashSaleOrchestrator.Worker.BackgroundServices;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.DeadLetter;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
 using ECommerce.FlashSaleOrchestrator.Worker.Resilience;
+using ECommerce.FlashSaleOrchestrator.Application.Abstractions.AlternativeCandidates;
+using ECommerce.FlashSaleOrchestrator.Application.AlternativeCandidates;
+using ECommerce.FlashSaleOrchestrator.Domain.Inventory;
+using ECommerce.FlashSaleOrchestrator.Domain.Products;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.AlternativeCandidates;
+using ECommerce.FlashSaleOrchestrator.Worker.IntegrationEvents.Inventory;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -402,6 +408,212 @@ public sealed class StockDepletedPipelineEndToEndTests
 
         Assert.NotNull(
             inboxMessages[0].ProcessedAtUtc);
+    }
+
+    [Fact]
+    public async Task Pipeline_ShouldRetrieveEligibleCandidates_WhenStockDepletedEventIsProcessed()
+    {
+        await using var database =
+            await OutboxTestDatabase.CreateAsync();
+
+        await using var topic =
+            await KafkaTestTopic.CreateAsync();
+
+        var eventId =
+            Guid.NewGuid();
+
+        var depletedProductId =
+            Guid.NewGuid();
+
+        var highStockCandidateId =
+            Guid.NewGuid();
+
+        var lowStockCandidateId =
+            Guid.NewGuid();
+
+        var differentCategoryProductId =
+            Guid.NewGuid();
+
+        const string correlationId =
+            "e2e-candidate-correlation-123";
+
+        var occurredAtUtc =
+            DateTime.UtcNow;
+
+        await SeedCandidateProductsAsync(
+            database,
+            depletedProductId,
+            highStockCandidateId,
+            lowStockCandidateId,
+            differentCategoryProductId);
+
+        await SeedPendingOutboxMessageAsync(
+            database,
+            eventId,
+            depletedProductId,
+            occurredAtUtc,
+            correlationId);
+
+        var candidateProbe =
+            new CandidateProbe();
+
+        await using var serviceProvider =
+            CreateCandidateRetrievalServiceProvider(
+                database,
+                topic,
+                candidateProbe);
+
+        var serviceScopeFactory =
+            serviceProvider.GetRequiredService<
+                IServiceScopeFactory>();
+
+        using var outboxWorker =
+            CreateOutboxWorker(
+                serviceScopeFactory);
+
+        var deadLetterPublisher =
+            new RecordingDeadLetterPublisher();
+
+        using var consumerWorker =
+            CreateConsumerWorker(
+                topic,
+                serviceScopeFactory,
+                deadLetterPublisher,
+                $"flashsale-e2e-candidates-{Guid.NewGuid():N}");
+
+        await consumerWorker.StartAsync(
+            CancellationToken.None);
+
+        await outboxWorker.StartAsync(
+            CancellationToken.None);
+
+        IReadOnlyList<AlternativeCandidate> candidates;
+
+        try
+        {
+            try
+            {
+                candidates =
+                    await candidateProbe.WaitAsync(
+                        TimeSpan.FromSeconds(15));
+            }
+            catch (TimeoutException)
+                when (deadLetterPublisher.LastMessage is not null)
+            {
+                throw CreateDeadLetterException(
+                    deadLetterPublisher.LastMessage);
+            }
+
+            await WaitUntilAsync(
+                async () =>
+                {
+                    await using var context =
+                        database.CreateContext();
+
+                    return await context
+                        .InboxMessages
+                        .AsNoTracking()
+                        .AnyAsync(
+                            message =>
+                                message.Id == eventId
+                                && message.ProcessedAtUtc != null);
+                },
+                TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            await StopWorkersAsync(
+                outboxWorker,
+                consumerWorker);
+        }
+
+        Assert.Equal(
+            2,
+            candidates.Count);
+
+        Assert.Collection(
+            candidates,
+            candidate =>
+            {
+                Assert.Equal(
+                    highStockCandidateId,
+                    candidate.ProductId);
+
+                Assert.Equal(
+                    "High Stock Mouse",
+                    candidate.Name);
+
+                Assert.Equal(
+                    "mouse",
+                    candidate.Category);
+
+                Assert.Equal(
+                    20,
+                    candidate.AvailableQuantity);
+            },
+            candidate =>
+            {
+                Assert.Equal(
+                    lowStockCandidateId,
+                    candidate.ProductId);
+
+                Assert.Equal(
+                    "Low Stock Mouse",
+                    candidate.Name);
+
+                Assert.Equal(
+                    "mouse",
+                    candidate.Category);
+
+                Assert.Equal(
+                    5,
+                    candidate.AvailableQuantity);
+            });
+
+        Assert.DoesNotContain(
+            candidates,
+            candidate =>
+                candidate.ProductId ==
+                depletedProductId);
+
+        Assert.DoesNotContain(
+            candidates,
+            candidate =>
+                candidate.ProductId ==
+                differentCategoryProductId);
+
+        Assert.Equal(
+            1,
+            candidateProbe.InvocationCount);
+
+        Assert.Equal(
+            0,
+            deadLetterPublisher.InvocationCount);
+
+        await using var verificationContext =
+            database.CreateContext();
+
+        var outboxMessage =
+            await verificationContext
+                .OutboxMessages
+                .AsNoTracking()
+                .SingleAsync(
+                    message =>
+                        message.Id == eventId);
+
+        Assert.NotNull(
+            outboxMessage.ProcessedAtUtc);
+
+        var inboxMessage =
+            await verificationContext
+                .InboxMessages
+                .AsNoTracking()
+                .SingleAsync(
+                    message =>
+                        message.Id == eventId);
+
+        Assert.NotNull(
+            inboxMessage.ProcessedAtUtc);
     }
 
     [Fact]
@@ -1175,6 +1387,227 @@ public sealed class StockDepletedPipelineEndToEndTests
             TimeSpan timeout)
         {
             return _published
+                .Task
+                .WaitAsync(
+                    timeout);
+        }
+    }
+
+    private static async Task SeedCandidateProductsAsync(
+    OutboxTestDatabase database,
+    Guid depletedProductId,
+    Guid highStockCandidateId,
+    Guid lowStockCandidateId,
+    Guid differentCategoryProductId)
+    {
+        var mouseCategory =
+            ProductCategory.From(
+                "Mouse");
+
+        var keyboardCategory =
+            ProductCategory.From(
+                "Keyboard");
+
+        var depletedId =
+            ProductId.From(
+                depletedProductId);
+
+        var highStockId =
+            ProductId.From(
+                highStockCandidateId);
+
+        var lowStockId =
+            ProductId.From(
+                lowStockCandidateId);
+
+        var differentCategoryId =
+            ProductId.From(
+                differentCategoryProductId);
+
+        await using var context =
+            database.CreateContext();
+
+        context.Products.AddRange(
+            Product.Create(
+                depletedId,
+                ProductName.From(
+                    "Depleted Mouse"),
+                mouseCategory),
+            Product.Create(
+                highStockId,
+                ProductName.From(
+                    "High Stock Mouse"),
+                mouseCategory),
+            Product.Create(
+                lowStockId,
+                ProductName.From(
+                    "Low Stock Mouse"),
+                mouseCategory),
+            Product.Create(
+                differentCategoryId,
+                ProductName.From(
+                    "Mechanical Keyboard"),
+                keyboardCategory));
+
+        context.InventoryItems.AddRange(
+            InventoryItem.Create(
+                depletedId,
+                StockQuantity.Zero),
+            InventoryItem.Create(
+                highStockId,
+                StockQuantity.From(20)),
+            InventoryItem.Create(
+                lowStockId,
+                StockQuantity.From(5)),
+            InventoryItem.Create(
+                differentCategoryId,
+                StockQuantity.From(100)));
+
+        await context.SaveChangesAsync();
+    }
+
+    private static ServiceProvider CreateCandidateRetrievalServiceProvider(
+    OutboxTestDatabase database,
+    KafkaTestTopic topic,
+    CandidateProbe candidateProbe)
+    {
+        var services =
+            new ServiceCollection();
+
+        services.AddLogging();
+
+        services.AddSingleton(
+            candidateProbe);
+
+        services.AddScoped<
+            ICorrelationContext,
+            CorrelationContext>();
+
+        services.AddDbContext<
+            FlashSaleOrchestratorDbContext>(
+            options =>
+                options.UseSqlServer(
+                    database.ConnectionString));
+
+        services.AddSingleton<
+            StockDepletedOutboxMessageMapper>();
+
+        services.AddScoped<
+            OutboxProcessor>();
+
+        services.AddSingleton<
+            IOptions<KafkaPublisherOptions>>(
+            Options.Create(
+                new KafkaPublisherOptions
+                {
+                    BootstrapServers =
+                        topic.BootstrapServers,
+
+                    StockDepletedTopic =
+                        topic.Name
+                }));
+
+        services.AddSingleton<
+            IEventPublisher,
+            KafkaEventPublisher>();
+
+        services.AddScoped<
+            SqlAlternativeCandidateProvider>();
+
+        services.AddScoped<
+            IAlternativeCandidateProvider,
+            RecordingAlternativeCandidateProvider>();
+
+        services.AddScoped<
+            IIntegrationEventHandler<
+                StockDepletedIntegrationEvent>,
+            StockDepletedIntegrationEventHandler>();
+
+        services.AddScoped<
+            IIntegrationEventProcessor<
+                StockDepletedIntegrationEvent>,
+            InboxIntegrationEventProcessor<
+                StockDepletedIntegrationEvent>>();
+
+        return services.BuildServiceProvider();
+    }
+
+    private sealed class RecordingAlternativeCandidateProvider
+    : IAlternativeCandidateProvider
+    {
+        private readonly SqlAlternativeCandidateProvider
+            _innerProvider;
+
+        private readonly CandidateProbe
+            _candidateProbe;
+
+        public RecordingAlternativeCandidateProvider(
+            SqlAlternativeCandidateProvider innerProvider,
+            CandidateProbe candidateProbe)
+        {
+            ArgumentNullException.ThrowIfNull(
+                innerProvider);
+
+            ArgumentNullException.ThrowIfNull(
+                candidateProbe);
+
+            _innerProvider =
+                innerProvider;
+
+            _candidateProbe =
+                candidateProbe;
+        }
+
+        public async Task<IReadOnlyList<AlternativeCandidate>> GetCandidatesAsync(
+            Guid depletedProductId,
+            int limit,
+            CancellationToken cancellationToken = default)
+        {
+            var candidates =
+                await _innerProvider.GetCandidatesAsync(
+                    depletedProductId,
+                    limit,
+                    cancellationToken);
+
+            _candidateProbe.Record(
+                candidates);
+
+            return candidates;
+        }
+    }
+
+    private sealed class CandidateProbe
+    {
+        private readonly TaskCompletionSource<
+            IReadOnlyList<AlternativeCandidate>> _retrieved =
+                new(
+                    TaskCreationOptions
+                        .RunContinuationsAsynchronously);
+
+        private int
+            _invocationCount;
+
+        public int InvocationCount =>
+            Volatile.Read(
+                ref _invocationCount);
+
+        public void Record(
+            IReadOnlyList<AlternativeCandidate> candidates)
+        {
+            ArgumentNullException.ThrowIfNull(
+                candidates);
+
+            Interlocked.Increment(
+                ref _invocationCount);
+
+            _retrieved.TrySetResult(
+                candidates);
+        }
+
+        public Task<IReadOnlyList<AlternativeCandidate>> WaitAsync(
+            TimeSpan timeout)
+        {
+            return _retrieved
                 .Task
                 .WaitAsync(
                     timeout);

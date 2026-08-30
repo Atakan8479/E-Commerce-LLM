@@ -4,6 +4,8 @@ using ECommerce.FlashSaleOrchestrator.Infrastructure.Observability;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Inbox;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Outbox;
+using ECommerce.FlashSaleOrchestrator.Application.Abstractions.AlternativeCandidates;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.AlternativeCandidates;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -40,6 +42,10 @@ public static class DependencyInjection
         services.AddScoped(
             typeof(IIntegrationEventProcessor<>),
             typeof(InboxIntegrationEventProcessor<>));
+
+        services.AddScoped<
+            IAlternativeCandidateProvider,
+            SqlAlternativeCandidateProvider>();
 
         return services;
     }
