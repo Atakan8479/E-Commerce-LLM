@@ -1,8 +1,13 @@
-﻿namespace ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations;
+﻿using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Resilience;
 
-public sealed class AlternativeRecommendationValidationException : Exception
+namespace ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations;
+
+public sealed class AlternativeRecommendationValidationException
+    : Exception,
+      INonRetryableException
 {
-    public AlternativeRecommendationValidationException(string message)
+    public AlternativeRecommendationValidationException(
+        string message)
         : base(message)
     {
     }
@@ -10,7 +15,9 @@ public sealed class AlternativeRecommendationValidationException : Exception
     public AlternativeRecommendationValidationException(
         string message,
         Exception innerException)
-        : base(message, innerException)
+        : base(
+            message,
+            innerException)
     {
     }
 }

@@ -618,6 +618,142 @@ public sealed class StockDepletedPipelineEndToEndTests
     }
 
     [Fact]
+    public async Task Pipeline_ShouldPublishToDeadLetterWithoutRetry_WhenRecommendationValidationFails()
+    {
+        await using var database =
+            await OutboxTestDatabase.CreateAsync();
+
+        await using var topic =
+            await KafkaTestTopic.CreateAsync();
+
+        var eventId =
+            Guid.NewGuid();
+
+        var depletedProductId =
+            Guid.NewGuid();
+
+        var highStockCandidateId =
+            Guid.NewGuid();
+
+        var lowStockCandidateId =
+            Guid.NewGuid();
+
+        var differentCategoryProductId =
+            Guid.NewGuid();
+
+        const string correlationId =
+            "e2e-non-retryable-recommendation-correlation";
+
+        var occurredAtUtc =
+            DateTime.UtcNow;
+
+        await SeedCandidateProductsAsync(
+            database,
+            depletedProductId,
+            highStockCandidateId,
+            lowStockCandidateId,
+            differentCategoryProductId);
+
+        await SeedPendingOutboxMessageAsync(
+            database,
+            eventId,
+            depletedProductId,
+            occurredAtUtc,
+            correlationId);
+
+        var recommendationProbe =
+            new RecommendationProbe();
+
+        await using var serviceProvider =
+            CreateRecommendationValidationFailureServiceProvider(
+                database,
+                topic,
+                recommendationProbe);
+
+        var serviceScopeFactory =
+            serviceProvider.GetRequiredService<
+                IServiceScopeFactory>();
+
+        using var outboxWorker =
+            CreateOutboxWorker(
+                serviceScopeFactory);
+
+        var deadLetterPublisher =
+            new RecordingDeadLetterPublisher();
+
+        using var consumerWorker =
+            CreateConsumerWorker(
+                topic,
+                serviceScopeFactory,
+                deadLetterPublisher,
+                $"flashsale-e2e-non-retryable-{Guid.NewGuid():N}");
+
+        await consumerWorker.StartAsync(
+            CancellationToken.None);
+
+        await outboxWorker.StartAsync(
+            CancellationToken.None);
+
+        DeadLetterMessage deadLetterMessage;
+
+        try
+        {
+            deadLetterMessage =
+                await deadLetterPublisher.WaitAsync(
+                    TimeSpan.FromSeconds(15));
+        }
+        finally
+        {
+            await StopWorkersAsync(
+                outboxWorker,
+                consumerWorker);
+        }
+
+        Assert.Equal(
+            1,
+            recommendationProbe.InvocationCount);
+
+        Assert.Equal(
+            1,
+            deadLetterPublisher.InvocationCount);
+
+        Assert.Equal(
+            eventId,
+            deadLetterMessage.EventId);
+
+        Assert.Equal(
+            StockDepletedIntegrationEvent.EventTypeName,
+            deadLetterMessage.EventType);
+
+        Assert.Equal(
+            correlationId,
+            deadLetterMessage.CorrelationId);
+
+        Assert.Equal(
+            typeof(AlternativeRecommendationValidationException).FullName,
+            deadLetterMessage.ErrorType);
+
+        Assert.Contains(
+            "Simulated invalid recommendation.",
+            deadLetterMessage.ErrorMessage);
+
+        await using var verificationContext =
+            database.CreateContext();
+
+        var inboxMessages =
+            await verificationContext
+                .InboxMessages
+                .AsNoTracking()
+                .Where(
+                    message =>
+                        message.Id == eventId)
+                .ToListAsync();
+
+        Assert.Empty(
+            inboxMessages);
+    }
+
+    [Fact]
     public async Task Pipeline_ShouldRetryAndPublishToDeadLetter_WhenHandlerKeepsFailing()
     {
         await using var database =
@@ -1465,6 +1601,119 @@ public sealed class StockDepletedPipelineEndToEndTests
                 StockQuantity.From(100)));
 
         await context.SaveChangesAsync();
+    }
+
+    private static ServiceProvider CreateRecommendationValidationFailureServiceProvider(
+    OutboxTestDatabase database,
+    KafkaTestTopic topic,
+    RecommendationProbe recommendationProbe)
+    {
+        var services =
+            new ServiceCollection();
+
+        services.AddLogging();
+
+        services.AddSingleton(
+            recommendationProbe);
+
+        services.AddScoped<
+            ICorrelationContext,
+            CorrelationContext>();
+
+        services.AddDbContext<
+            FlashSaleOrchestratorDbContext>(
+            options =>
+                options.UseSqlServer(
+                    database.ConnectionString));
+
+        services.AddSingleton<
+            StockDepletedOutboxMessageMapper>();
+
+        services.AddScoped<
+            OutboxProcessor>();
+
+        services.AddSingleton<
+            IOptions<KafkaPublisherOptions>>(
+            Options.Create(
+                new KafkaPublisherOptions
+                {
+                    BootstrapServers =
+                        topic.BootstrapServers,
+
+                    StockDepletedTopic =
+                        topic.Name
+                }));
+
+        services.AddSingleton<
+            IEventPublisher,
+            KafkaEventPublisher>();
+
+        services.AddScoped<
+            IAlternativeCandidateProvider,
+            SqlAlternativeCandidateProvider>();
+
+        services.AddScoped<
+            IAlternativeRecommendationGenerator,
+            FailingAlternativeRecommendationGenerator>();
+
+        services.AddScoped<
+            IIntegrationEventHandler<
+                StockDepletedIntegrationEvent>,
+            StockDepletedIntegrationEventHandler>();
+
+        services.AddScoped<
+            IIntegrationEventProcessor<
+                StockDepletedIntegrationEvent>,
+            InboxIntegrationEventProcessor<
+                StockDepletedIntegrationEvent>>();
+
+        return services.BuildServiceProvider();
+    }
+
+    private sealed class FailingAlternativeRecommendationGenerator
+    : IAlternativeRecommendationGenerator
+    {
+        private readonly RecommendationProbe
+            _recommendationProbe;
+
+        public FailingAlternativeRecommendationGenerator(
+            RecommendationProbe recommendationProbe)
+        {
+            ArgumentNullException.ThrowIfNull(
+                recommendationProbe);
+
+            _recommendationProbe =
+                recommendationProbe;
+        }
+
+        public Task<AlternativeRecommendationResult> GenerateAsync(
+            AlternativeRecommendationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(
+                request);
+
+            _recommendationProbe.Record();
+
+            throw new AlternativeRecommendationValidationException(
+                "Simulated invalid recommendation.");
+        }
+    }
+
+    private sealed class RecommendationProbe
+    {
+        private int
+            _invocationCount;
+
+        public int InvocationCount =>
+            Volatile.Read(
+                ref _invocationCount);
+
+        public void Record()
+        {
+            Interlocked.Increment(
+                ref _invocationCount);
+        }
     }
 
     private static ServiceProvider CreateCandidateRetrievalServiceProvider(
