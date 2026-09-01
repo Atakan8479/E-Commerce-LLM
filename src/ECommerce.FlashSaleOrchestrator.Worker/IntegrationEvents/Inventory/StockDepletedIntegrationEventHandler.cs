@@ -1,5 +1,6 @@
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.AlternativeCandidates;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
+using ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations;
 using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
 
 namespace ECommerce.FlashSaleOrchestrator.Worker.IntegrationEvents.Inventory;
@@ -12,21 +13,31 @@ public sealed class StockDepletedIntegrationEventHandler
     private readonly IAlternativeCandidateProvider
         _alternativeCandidateProvider;
 
+    private readonly IAlternativeRecommendationGenerator
+        _alternativeRecommendationGenerator;
+
     private readonly ILogger<StockDepletedIntegrationEventHandler>
         _logger;
 
     public StockDepletedIntegrationEventHandler(
         IAlternativeCandidateProvider alternativeCandidateProvider,
+        IAlternativeRecommendationGenerator alternativeRecommendationGenerator,
         ILogger<StockDepletedIntegrationEventHandler> logger)
     {
         ArgumentNullException.ThrowIfNull(
             alternativeCandidateProvider);
 
         ArgumentNullException.ThrowIfNull(
+            alternativeRecommendationGenerator);
+
+        ArgumentNullException.ThrowIfNull(
             logger);
 
         _alternativeCandidateProvider =
             alternativeCandidateProvider;
+
+        _alternativeRecommendationGenerator =
+            alternativeRecommendationGenerator;
 
         _logger =
             logger;
@@ -48,14 +59,27 @@ public sealed class StockDepletedIntegrationEventHandler
             integrationEvent.CorrelationId,
             integrationEvent.OccurredAtUtc);
 
-        var candidates =
+        var candidateSet =
             await _alternativeCandidateProvider
-                .GetCandidatesAsync(
+                .GetCandidateSetAsync(
                     integrationEvent.ProductId,
                     AlternativeCandidateLimit,
                     cancellationToken);
 
-        if (candidates.Count == 0)
+        if (candidateSet is null)
+        {
+            _logger.LogWarning(
+                "Depleted product was not found while retrieving alternatives. " +
+                "EventId: {EventId}, ProductId: {ProductId}, " +
+                "CorrelationId: {CorrelationId}",
+                integrationEvent.EventId,
+                integrationEvent.ProductId,
+                integrationEvent.CorrelationId);
+
+            return;
+        }
+
+        if (candidateSet.Candidates.Count == 0)
         {
             _logger.LogInformation(
                 "No eligible alternative candidates found. " +
@@ -75,6 +99,27 @@ public sealed class StockDepletedIntegrationEventHandler
             integrationEvent.EventId,
             integrationEvent.ProductId,
             integrationEvent.CorrelationId,
-            candidates.Count);
+            candidateSet.Candidates.Count);
+
+        var request =
+            new AlternativeRecommendationRequest(
+                integrationEvent.CorrelationId,
+                candidateSet.DepletedProduct,
+                candidateSet.Candidates);
+
+        var result =
+            await _alternativeRecommendationGenerator
+                .GenerateAsync(
+                    request,
+                    cancellationToken);
+
+        _logger.LogInformation(
+            "Alternative recommendation generation completed. " +
+            "EventId: {EventId}, ProductId: {ProductId}, " +
+            "CorrelationId: {CorrelationId}, RecommendationCount: {RecommendationCount}",
+            integrationEvent.EventId,
+            integrationEvent.ProductId,
+            integrationEvent.CorrelationId,
+            result.Recommendations.Count);
     }
 }

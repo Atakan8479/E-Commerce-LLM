@@ -1,11 +1,11 @@
+using System.Text.Json;
 using ECommerce.FlashSaleOrchestrator.Domain.Carts;
 using ECommerce.FlashSaleOrchestrator.Domain.Inventory;
+using ECommerce.FlashSaleOrchestrator.Domain.Inventory.Events;
 using ECommerce.FlashSaleOrchestrator.Domain.Products;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.AlternativeCandidates;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Repositories;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.AlternativeCandidates;
-using System.Text.Json;
-using ECommerce.FlashSaleOrchestrator.Domain.Inventory.Events;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
@@ -161,10 +161,28 @@ public sealed class SqlServerPersistenceTests
             new SqlAlternativeCandidateProvider(
                 queryContext);
 
-        var allCandidates =
-            await provider.GetCandidatesAsync(
+        var candidateSet =
+            await provider.GetCandidateSetAsync(
                 excludedProductId.Value,
                 10);
+
+        Assert.NotNull(
+            candidateSet);
+
+        Assert.Equal(
+            excludedProductId.Value,
+            candidateSet.DepletedProduct.ProductId);
+
+        Assert.Equal(
+            "Excluded Mouse",
+            candidateSet.DepletedProduct.Name);
+
+        Assert.Equal(
+            "mouse",
+            candidateSet.DepletedProduct.Category);
+
+        var allCandidates =
+            candidateSet.Candidates;
 
         Assert.Equal(
             3,
@@ -197,6 +215,10 @@ public sealed class SqlServerPersistenceTests
                     candidate.ProductId);
 
                 Assert.Equal(
+                    "Medium Stock Mouse",
+                    candidate.Name);
+
+                Assert.Equal(
                     "mouse",
                     candidate.Category);
 
@@ -211,6 +233,10 @@ public sealed class SqlServerPersistenceTests
                     candidate.ProductId);
 
                 Assert.Equal(
+                    "Low Stock Mouse",
+                    candidate.Name);
+
+                Assert.Equal(
                     "mouse",
                     candidate.Category);
 
@@ -223,12 +249,30 @@ public sealed class SqlServerPersistenceTests
             allCandidates,
             candidate =>
                 candidate.ProductId ==
+                excludedProductId.Value);
+
+        Assert.DoesNotContain(
+            allCandidates,
+            candidate =>
+                candidate.ProductId ==
+                unavailableProductId.Value);
+
+        Assert.DoesNotContain(
+            allCandidates,
+            candidate =>
+                candidate.ProductId ==
                 differentCategoryProductId.Value);
 
-        var limitedCandidates =
-            await provider.GetCandidatesAsync(
+        var limitedCandidateSet =
+            await provider.GetCandidateSetAsync(
                 excludedProductId.Value,
                 2);
+
+        Assert.NotNull(
+            limitedCandidateSet);
+
+        var limitedCandidates =
+            limitedCandidateSet.Candidates;
 
         Assert.Equal(
             2,
@@ -286,13 +330,24 @@ public sealed class SqlServerPersistenceTests
             new SqlAlternativeCandidateProvider(
                 queryContext);
 
-        var candidates =
-            await provider.GetCandidatesAsync(
+        var candidateSet =
+            await provider.GetCandidateSetAsync(
                 depletedProductId.Value,
                 10);
 
+        Assert.NotNull(
+            candidateSet);
+
+        Assert.Equal(
+            depletedProductId.Value,
+            candidateSet.DepletedProduct.ProductId);
+
+        Assert.Equal(
+            "Uncategorized Depleted Product",
+            candidateSet.DepletedProduct.Name);
+
         Assert.Empty(
-            candidates);
+            candidateSet.Candidates);
     }
 
     [Fact]
@@ -420,7 +475,8 @@ public sealed class SqlServerPersistenceTests
             await arrangeContext.SaveChangesAsync();
 
             var cart =
-                Cart.Create(cartId);
+                Cart.Create(
+                    cartId);
 
             cart.AddItem(
                 firstProductId,
@@ -511,11 +567,13 @@ public sealed class SqlServerPersistenceTests
                 item =>
                     item.ProductId == productId);
 
-        firstInventoryItem.DecreaseStock(1);
+        firstInventoryItem.DecreaseStock(
+            1);
 
         await firstContext.SaveChangesAsync();
 
-        secondInventoryItem.DecreaseStock(1);
+        secondInventoryItem.DecreaseStock(
+            1);
 
         await Assert.ThrowsAsync<
             DbUpdateConcurrencyException>(
@@ -555,76 +613,8 @@ public sealed class SqlServerPersistenceTests
             persistedOutboxMessages[0].ProcessedAtUtc);
     }
 
-    private sealed class TestDatabase
-        : IAsyncDisposable
-    {
-        private readonly string _connectionString;
-
-        private TestDatabase(
-            string connectionString)
-        {
-            _connectionString =
-                connectionString;
-        }
-
-        public static async Task<TestDatabase> CreateAsync()
-        {
-            var baseConnectionString =
-                Environment.GetEnvironmentVariable(
-                    "FLASHSALE_SQL_CONNECTION");
-
-            if (string.IsNullOrWhiteSpace(
-                baseConnectionString))
-            {
-                throw new InvalidOperationException(
-                    "Environment variable 'FLASHSALE_SQL_CONNECTION' must be configured.");
-            }
-
-            var connectionStringBuilder =
-                new SqlConnectionStringBuilder(
-                    baseConnectionString)
-                {
-                    InitialCatalog =
-                        $"FlashSaleTests_{Guid.NewGuid():N}"
-                };
-
-            var database =
-                new TestDatabase(
-                    connectionStringBuilder.ConnectionString);
-
-            await using var context =
-                database.CreateContext();
-
-            await context.Database.MigrateAsync();
-
-            return database;
-        }
-
-        public FlashSaleOrchestratorDbContext
-            CreateContext()
-        {
-            var options =
-                new DbContextOptionsBuilder<
-                    FlashSaleOrchestratorDbContext>()
-                    .UseSqlServer(
-                        _connectionString)
-                    .Options;
-
-            return new FlashSaleOrchestratorDbContext(
-                options);
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            await using var context =
-                CreateContext();
-
-            await context.Database.EnsureDeletedAsync();
-        }
-    }
-
     [Fact]
-    public async Task AlternativeCandidateProvider_ShouldReturnEmpty_WhenDepletedProductDoesNotExist()
+    public async Task AlternativeCandidateProvider_ShouldReturnNull_WhenDepletedProductDoesNotExist()
     {
         await using var database =
             await TestDatabase.CreateAsync();
@@ -658,13 +648,13 @@ public sealed class SqlServerPersistenceTests
             new SqlAlternativeCandidateProvider(
                 queryContext);
 
-        var candidates =
-            await provider.GetCandidatesAsync(
+        var candidateSet =
+            await provider.GetCandidateSetAsync(
                 Guid.NewGuid(),
                 10);
 
-        Assert.Empty(
-            candidates);
+        Assert.Null(
+            candidateSet);
     }
 
     [Fact]
@@ -683,7 +673,7 @@ public sealed class SqlServerPersistenceTests
         var exception =
             await Assert.ThrowsAsync<ArgumentException>(
                 () =>
-                    provider.GetCandidatesAsync(
+                    provider.GetCandidateSetAsync(
                         Guid.Empty,
                         10));
 
@@ -697,7 +687,7 @@ public sealed class SqlServerPersistenceTests
     [InlineData(-1)]
     [InlineData(-10)]
     public async Task AlternativeCandidateProvider_ShouldThrow_WhenLimitIsNotPositive(
-    int limit)
+        int limit)
     {
         await using var database =
             await TestDatabase.CreateAsync();
@@ -713,7 +703,7 @@ public sealed class SqlServerPersistenceTests
             await Assert.ThrowsAsync<
                 ArgumentOutOfRangeException>(
                 () =>
-                    provider.GetCandidatesAsync(
+                    provider.GetCandidateSetAsync(
                         Guid.NewGuid(),
                         limit));
 
@@ -793,15 +783,27 @@ public sealed class SqlServerPersistenceTests
             new SqlAlternativeCandidateProvider(
                 queryContext);
 
-        var firstResult =
-            await provider.GetCandidatesAsync(
+        var firstCandidateSet =
+            await provider.GetCandidateSetAsync(
                 depletedProductId.Value,
                 2);
 
-        var secondResult =
-            await provider.GetCandidatesAsync(
+        var secondCandidateSet =
+            await provider.GetCandidateSetAsync(
                 depletedProductId.Value,
                 2);
+
+        Assert.NotNull(
+            firstCandidateSet);
+
+        Assert.NotNull(
+            secondCandidateSet);
+
+        var firstResult =
+            firstCandidateSet.Candidates;
+
+        var secondResult =
+            secondCandidateSet.Candidates;
 
         Assert.Equal(
             2,
@@ -809,9 +811,13 @@ public sealed class SqlServerPersistenceTests
 
         Assert.Equal(
             firstResult
-                .Select(candidate => candidate.ProductId),
+                .Select(
+                    candidate =>
+                        candidate.ProductId),
             secondResult
-                .Select(candidate => candidate.ProductId));
+                .Select(
+                    candidate =>
+                        candidate.ProductId));
 
         Assert.All(
             firstResult,
@@ -819,5 +825,72 @@ public sealed class SqlServerPersistenceTests
                 Assert.Equal(
                     10,
                     candidate.AvailableQuantity));
+    }
+
+    private sealed class TestDatabase
+        : IAsyncDisposable
+    {
+        private readonly string _connectionString;
+
+        private TestDatabase(
+            string connectionString)
+        {
+            _connectionString =
+                connectionString;
+        }
+
+        public static async Task<TestDatabase> CreateAsync()
+        {
+            var baseConnectionString =
+                Environment.GetEnvironmentVariable(
+                    "FLASHSALE_SQL_CONNECTION");
+
+            if (string.IsNullOrWhiteSpace(
+                baseConnectionString))
+            {
+                throw new InvalidOperationException(
+                    "Environment variable 'FLASHSALE_SQL_CONNECTION' must be configured.");
+            }
+
+            var connectionStringBuilder =
+                new SqlConnectionStringBuilder(
+                    baseConnectionString)
+                {
+                    InitialCatalog =
+                        $"FlashSaleTests_{Guid.NewGuid():N}"
+                };
+
+            var database =
+                new TestDatabase(
+                    connectionStringBuilder.ConnectionString);
+
+            await using var context =
+                database.CreateContext();
+
+            await context.Database.MigrateAsync();
+
+            return database;
+        }
+
+        public FlashSaleOrchestratorDbContext CreateContext()
+        {
+            var options =
+                new DbContextOptionsBuilder<
+                    FlashSaleOrchestratorDbContext>()
+                    .UseSqlServer(
+                        _connectionString)
+                    .Options;
+
+            return new FlashSaleOrchestratorDbContext(
+                options);
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await using var context =
+                CreateContext();
+
+            await context.Database.EnsureDeletedAsync();
+        }
     }
 }

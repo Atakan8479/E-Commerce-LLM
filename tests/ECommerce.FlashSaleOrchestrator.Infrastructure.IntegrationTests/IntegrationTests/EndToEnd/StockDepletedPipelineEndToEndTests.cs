@@ -2,10 +2,16 @@
 using System.Diagnostics;
 using System.Text.Json;
 using ECommerce.FlashSaleOrchestrator.Api.BackgroundServices;
+using ECommerce.FlashSaleOrchestrator.Application.Abstractions.AlternativeCandidates;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Observability;
+using ECommerce.FlashSaleOrchestrator.Application.AlternativeCandidates;
+using ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations;
 using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
+using ECommerce.FlashSaleOrchestrator.Domain.Inventory;
 using ECommerce.FlashSaleOrchestrator.Domain.Inventory.Events;
+using ECommerce.FlashSaleOrchestrator.Domain.Products;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.AlternativeCandidates;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.Kafka;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.Outbox;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Messaging.Kafka;
@@ -14,15 +20,10 @@ using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Inbox;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Outbox;
 using ECommerce.FlashSaleOrchestrator.Worker.BackgroundServices;
+using ECommerce.FlashSaleOrchestrator.Worker.IntegrationEvents.Inventory;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.DeadLetter;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
 using ECommerce.FlashSaleOrchestrator.Worker.Resilience;
-using ECommerce.FlashSaleOrchestrator.Application.Abstractions.AlternativeCandidates;
-using ECommerce.FlashSaleOrchestrator.Application.AlternativeCandidates;
-using ECommerce.FlashSaleOrchestrator.Domain.Inventory;
-using ECommerce.FlashSaleOrchestrator.Domain.Products;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.AlternativeCandidates;
-using ECommerce.FlashSaleOrchestrator.Worker.IntegrationEvents.Inventory;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -1394,11 +1395,11 @@ public sealed class StockDepletedPipelineEndToEndTests
     }
 
     private static async Task SeedCandidateProductsAsync(
-    OutboxTestDatabase database,
-    Guid depletedProductId,
-    Guid highStockCandidateId,
-    Guid lowStockCandidateId,
-    Guid differentCategoryProductId)
+        OutboxTestDatabase database,
+        Guid depletedProductId,
+        Guid highStockCandidateId,
+        Guid lowStockCandidateId,
+        Guid differentCategoryProductId)
     {
         var mouseCategory =
             ProductCategory.From(
@@ -1467,9 +1468,9 @@ public sealed class StockDepletedPipelineEndToEndTests
     }
 
     private static ServiceProvider CreateCandidateRetrievalServiceProvider(
-    OutboxTestDatabase database,
-    KafkaTestTopic topic,
-    CandidateProbe candidateProbe)
+        OutboxTestDatabase database,
+        KafkaTestTopic topic,
+        CandidateProbe candidateProbe)
     {
         var services =
             new ServiceCollection();
@@ -1519,6 +1520,10 @@ public sealed class StockDepletedPipelineEndToEndTests
             RecordingAlternativeCandidateProvider>();
 
         services.AddScoped<
+            IAlternativeRecommendationGenerator,
+            NoOpAlternativeRecommendationGenerator>();
+
+        services.AddScoped<
             IIntegrationEventHandler<
                 StockDepletedIntegrationEvent>,
             StockDepletedIntegrationEventHandler>();
@@ -1533,7 +1538,7 @@ public sealed class StockDepletedPipelineEndToEndTests
     }
 
     private sealed class RecordingAlternativeCandidateProvider
-    : IAlternativeCandidateProvider
+        : IAlternativeCandidateProvider
     {
         private readonly SqlAlternativeCandidateProvider
             _innerProvider;
@@ -1558,21 +1563,38 @@ public sealed class StockDepletedPipelineEndToEndTests
                 candidateProbe;
         }
 
-        public async Task<IReadOnlyList<AlternativeCandidate>> GetCandidatesAsync(
+        public async Task<AlternativeCandidateSet?> GetCandidateSetAsync(
             Guid depletedProductId,
             int limit,
             CancellationToken cancellationToken = default)
         {
-            var candidates =
-                await _innerProvider.GetCandidatesAsync(
+            var candidateSet =
+                await _innerProvider.GetCandidateSetAsync(
                     depletedProductId,
                     limit,
                     cancellationToken);
 
             _candidateProbe.Record(
-                candidates);
+                candidateSet?.Candidates
+                ?? Array.Empty<AlternativeCandidate>());
 
-            return candidates;
+            return candidateSet;
+        }
+    }
+
+    private sealed class NoOpAlternativeRecommendationGenerator
+        : IAlternativeRecommendationGenerator
+    {
+        public Task<AlternativeRecommendationResult> GenerateAsync(
+            AlternativeRecommendationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(
+                request);
+
+            return Task.FromResult(
+                new AlternativeRecommendationResult(
+                    []));
         }
     }
 
