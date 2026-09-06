@@ -6,6 +6,7 @@ using ECommerce.FlashSaleOrchestrator.Worker.IntegrationEvents.Inventory;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
 using ECommerce.FlashSaleOrchestrator.Worker.Resilience;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.DeadLetter;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
 
 var builder =
     Host.CreateApplicationBuilder(args);
@@ -19,6 +20,28 @@ if (string.IsNullOrWhiteSpace(
 {
     throw new InvalidOperationException(
         "Environment variable 'FLASHSALE_SQL_CONNECTION' must be configured.");
+}
+
+var openAiModelId =
+    Environment.GetEnvironmentVariable(
+        "FLASHSALE_OPENAI_MODEL_ID");
+
+if (string.IsNullOrWhiteSpace(
+    openAiModelId))
+{
+    throw new InvalidOperationException(
+        "Environment variable 'FLASHSALE_OPENAI_MODEL_ID' must be configured.");
+}
+
+var openAiApiKey =
+    Environment.GetEnvironmentVariable(
+        "FLASHSALE_OPENAI_API_KEY");
+
+if (string.IsNullOrWhiteSpace(
+    openAiApiKey))
+{
+    throw new InvalidOperationException(
+        "Environment variable 'FLASHSALE_OPENAI_API_KEY' must be configured.");
 }
 
 builder.Services.AddInfrastructure(

@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Resilience;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace ECommerce.FlashSaleOrchestrator.Worker.Resilience;
@@ -59,6 +60,22 @@ public sealed class IntegrationEventRetryExecutor
             catch (OperationCanceledException)
                 when (cancellationToken.IsCancellationRequested)
             {
+                throw;
+            }
+            catch (Exception exception)
+                when (exception is INonRetryableException)
+            {
+                _logger.LogError(
+                    exception,
+                    "Integration event processing failed with " +
+                    "a non-retryable error. " +
+                    "EventId: {EventId}, " +
+                    "EventType: {EventType}, " +
+                    "Attempt: {Attempt}",
+                    eventId,
+                    eventType,
+                    attempt);
+
                 throw;
             }
             catch (Exception exception)

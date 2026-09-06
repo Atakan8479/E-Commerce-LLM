@@ -4,7 +4,7 @@ namespace ECommerce.FlashSaleOrchestrator.Application.Abstractions.AlternativeCa
 
 public interface IAlternativeCandidateProvider
 {
-    Task<IReadOnlyList<AlternativeCandidate>> GetCandidatesAsync(
+    Task<AlternativeCandidateSet?> GetCandidateSetAsync(
         Guid depletedProductId,
         int limit,
         CancellationToken cancellationToken = default);

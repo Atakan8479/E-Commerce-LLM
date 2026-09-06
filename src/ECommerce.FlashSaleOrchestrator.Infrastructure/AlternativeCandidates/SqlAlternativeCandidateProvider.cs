@@ -15,12 +15,14 @@ public sealed class SqlAlternativeCandidateProvider
     public SqlAlternativeCandidateProvider(
         FlashSaleOrchestratorDbContext dbContext)
     {
-        ArgumentNullException.ThrowIfNull(dbContext);
+        ArgumentNullException.ThrowIfNull(
+            dbContext);
 
-        _dbContext = dbContext;
+        _dbContext =
+            dbContext;
     }
 
-    public async Task<IReadOnlyList<AlternativeCandidate>> GetCandidatesAsync(
+    public async Task<AlternativeCandidateSet?> GetCandidateSetAsync(
         Guid depletedProductId,
         int limit,
         CancellationToken cancellationToken = default)
@@ -41,7 +43,8 @@ public sealed class SqlAlternativeCandidateProvider
         }
 
         var excludedProductId =
-            ProductId.From(depletedProductId);
+            ProductId.From(
+                depletedProductId);
 
         var depletedProduct =
             await _dbContext.Products
@@ -53,16 +56,29 @@ public sealed class SqlAlternativeCandidateProvider
                     product =>
                         new
                         {
+                            product.Name,
                             product.Category
                         })
                 .SingleOrDefaultAsync(
                     cancellationToken);
 
-        if (depletedProduct is null ||
-            depletedProduct.Category ==
+        if (depletedProduct is null)
+        {
+            return null;
+        }
+
+        var depletedProductContext =
+            new DepletedProductContext(
+                depletedProductId,
+                depletedProduct.Name.Value,
+                depletedProduct.Category.Value);
+
+        if (depletedProduct.Category ==
             ProductCategory.Uncategorized)
         {
-            return Array.Empty<AlternativeCandidate>();
+            return new AlternativeCandidateSet(
+                depletedProductContext,
+                []);
         }
 
         var depletedCategory =
@@ -91,14 +107,19 @@ public sealed class SqlAlternativeCandidateProvider
             .ToListAsync(
                 cancellationToken);
 
-        return candidates
-            .Select(
-                candidate =>
-                    new AlternativeCandidate(
-                        candidate.Id.Value,
-                        candidate.Name.Value,
-                        candidate.Category.Value,
-                        candidate.AvailableQuantity.Value))
-            .ToArray();
+        var alternativeCandidates =
+            candidates
+                .Select(
+                    candidate =>
+                        new AlternativeCandidate(
+                            candidate.Id.Value,
+                            candidate.Name.Value,
+                            candidate.Category.Value,
+                            candidate.AvailableQuantity.Value))
+                .ToArray();
+
+        return new AlternativeCandidateSet(
+            depletedProductContext,
+            alternativeCandidates);
     }
 }

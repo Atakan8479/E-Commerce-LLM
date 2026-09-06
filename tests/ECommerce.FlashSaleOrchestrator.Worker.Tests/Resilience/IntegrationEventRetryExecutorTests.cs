@@ -1,4 +1,5 @@
-﻿using ECommerce.FlashSaleOrchestrator.Worker.Resilience;
+﻿using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Resilience;
+using ECommerce.FlashSaleOrchestrator.Worker.Resilience;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -118,6 +119,40 @@ public sealed class IntegrationEventRetryExecutorTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_ShouldNotRetry_WhenFailureIsNonRetryable()
+    {
+        var executor =
+            CreateExecutor(
+                maxAttempts: 3);
+
+        var attempts =
+            0;
+
+        var exception =
+            await Assert.ThrowsAsync<
+                NonRetryableTestException>(
+                () =>
+                    executor.ExecuteAsync<int>(
+                        cancellationToken =>
+                        {
+                            attempts++;
+
+                            throw new NonRetryableTestException(
+                                "Permanent failure.");
+                        },
+                        Guid.NewGuid(),
+                        "stock-depleted"));
+
+        Assert.Equal(
+            "Permanent failure.",
+            exception.Message);
+
+        Assert.Equal(
+            1,
+            attempts);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_ShouldNotRetry_WhenCancellationWasRequested()
     {
         var executor =
@@ -167,5 +202,16 @@ public sealed class IntegrationEventRetryExecutorTests
                 }),
             NullLogger<
                 IntegrationEventRetryExecutor>.Instance);
+    }
+
+    private sealed class NonRetryableTestException
+        : Exception,
+          INonRetryableException
+    {
+        public NonRetryableTestException(
+            string message)
+            : base(message)
+        {
+        }
     }
 }
