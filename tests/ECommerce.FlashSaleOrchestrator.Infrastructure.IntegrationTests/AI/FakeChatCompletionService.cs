@@ -4,13 +4,27 @@ using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.AI;
 
-internal sealed class FakeChatCompletionService : IChatCompletionService
+internal sealed class FakeChatCompletionService
+    : IChatCompletionService
 {
-    private readonly string _response;
+    private readonly Func<int, string>
+        _responseFactory;
 
-    public FakeChatCompletionService(string response)
+    public FakeChatCompletionService(
+        string response)
+        : this(
+            _ => response)
     {
-        _response = response;
+    }
+
+    public FakeChatCompletionService(
+        Func<int, string> responseFactory)
+    {
+        ArgumentNullException.ThrowIfNull(
+            responseFactory);
+
+        _responseFactory =
+            responseFactory;
     }
 
     public IReadOnlyDictionary<string, object?> Attributes { get; } =
@@ -27,18 +41,25 @@ internal sealed class FakeChatCompletionService : IChatCompletionService
         CancellationToken cancellationToken = default)
     {
         CallCount++;
-        ReceivedCancellationToken = cancellationToken;
+
+        ReceivedCancellationToken =
+            cancellationToken;
 
         cancellationToken.ThrowIfCancellationRequested();
+
+        var responseContent =
+            _responseFactory(
+                CallCount);
 
         IReadOnlyList<ChatMessageContent> response =
         [
             new ChatMessageContent(
                 AuthorRole.Assistant,
-                _response)
+                responseContent)
         ];
 
-        return Task.FromResult(response);
+        return Task.FromResult(
+            response);
     }
 
     public async IAsyncEnumerable<StreamingChatMessageContent>
@@ -49,6 +70,7 @@ internal sealed class FakeChatCompletionService : IChatCompletionService
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await Task.CompletedTask;
+
         yield break;
     }
 }

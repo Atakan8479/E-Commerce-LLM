@@ -25,8 +25,14 @@ public static class AlternativeRecommendationAiDependencyInjection
             apiKey);
 
         services.AddScoped<
-            IAlternativeRecommendationGenerator,
             SemanticKernelAlternativeRecommendationGenerator>();
+
+        services.AddScoped<
+            DeterministicAlternativeRecommendationGenerator>();
+
+        services.AddScoped<
+            IAlternativeRecommendationGenerator,
+            ResilientAlternativeRecommendationGenerator>();
 
         return services;
     }

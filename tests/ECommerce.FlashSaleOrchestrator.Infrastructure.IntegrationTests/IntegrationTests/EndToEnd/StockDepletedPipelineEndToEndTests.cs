@@ -3,6 +3,9 @@ using System.Diagnostics;
 using System.Text.Json;
 using ECommerce.FlashSaleOrchestrator.Api.BackgroundServices;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.AlternativeCandidates;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.AI;
+using Microsoft.SemanticKernel.ChatCompletion;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Observability;
 using ECommerce.FlashSaleOrchestrator.Application.AlternativeCandidates;
@@ -618,7 +621,7 @@ public sealed class StockDepletedPipelineEndToEndTests
     }
 
     [Fact]
-    public async Task Pipeline_ShouldPublishToDeadLetterWithoutRetry_WhenRecommendationValidationFails()
+    public async Task Pipeline_ShouldUseDeterministicFallbackWithoutDeadLetter_WhenLlmResponseRemainsInvalid()
     {
         await using var database =
             await OutboxTestDatabase.CreateAsync();
@@ -642,7 +645,7 @@ public sealed class StockDepletedPipelineEndToEndTests
             Guid.NewGuid();
 
         const string correlationId =
-            "e2e-non-retryable-recommendation-correlation";
+            "e2e-recommendation-fallback-correlation";
 
         var occurredAtUtc =
             DateTime.UtcNow;
@@ -661,14 +664,15 @@ public sealed class StockDepletedPipelineEndToEndTests
             occurredAtUtc,
             correlationId);
 
-        var recommendationProbe =
-            new RecommendationProbe();
+        var fakeChatCompletionService =
+            new FakeChatCompletionService(
+                "{ invalid-json");
 
         await using var serviceProvider =
-            CreateRecommendationValidationFailureServiceProvider(
+            CreateRecommendationFallbackServiceProvider(
                 database,
                 topic,
-                recommendationProbe);
+                fakeChatCompletionService);
 
         var serviceScopeFactory =
             serviceProvider.GetRequiredService<
@@ -686,7 +690,7 @@ public sealed class StockDepletedPipelineEndToEndTests
                 topic,
                 serviceScopeFactory,
                 deadLetterPublisher,
-                $"flashsale-e2e-non-retryable-{Guid.NewGuid():N}");
+                $"flashsale-e2e-fallback-{Guid.NewGuid():N}");
 
         await consumerWorker.StartAsync(
             CancellationToken.None);
@@ -694,13 +698,23 @@ public sealed class StockDepletedPipelineEndToEndTests
         await outboxWorker.StartAsync(
             CancellationToken.None);
 
-        DeadLetterMessage deadLetterMessage;
-
         try
         {
-            deadLetterMessage =
-                await deadLetterPublisher.WaitAsync(
-                    TimeSpan.FromSeconds(15));
+            await WaitUntilAsync(
+                async () =>
+                {
+                    await using var context =
+                        database.CreateContext();
+
+                    return await context
+                        .InboxMessages
+                        .AsNoTracking()
+                        .AnyAsync(
+                            message =>
+                                message.Id == eventId
+                                && message.ProcessedAtUtc != null);
+                },
+                TimeSpan.FromSeconds(15));
         }
         finally
         {
@@ -710,47 +724,41 @@ public sealed class StockDepletedPipelineEndToEndTests
         }
 
         Assert.Equal(
-            1,
-            recommendationProbe.InvocationCount);
+            2,
+            fakeChatCompletionService.CallCount);
 
         Assert.Equal(
-            1,
+            0,
             deadLetterPublisher.InvocationCount);
-
-        Assert.Equal(
-            eventId,
-            deadLetterMessage.EventId);
-
-        Assert.Equal(
-            StockDepletedIntegrationEvent.EventTypeName,
-            deadLetterMessage.EventType);
-
-        Assert.Equal(
-            correlationId,
-            deadLetterMessage.CorrelationId);
-
-        Assert.Equal(
-            typeof(AlternativeRecommendationValidationException).FullName,
-            deadLetterMessage.ErrorType);
-
-        Assert.Contains(
-            "Simulated invalid recommendation.",
-            deadLetterMessage.ErrorMessage);
 
         await using var verificationContext =
             database.CreateContext();
 
-        var inboxMessages =
+        var inboxMessage =
             await verificationContext
                 .InboxMessages
                 .AsNoTracking()
-                .Where(
+                .SingleAsync(
                     message =>
-                        message.Id == eventId)
-                .ToListAsync();
+                        message.Id == eventId);
 
-        Assert.Empty(
-            inboxMessages);
+        Assert.Equal(
+            StockDepletedIntegrationEvent.EventTypeName,
+            inboxMessage.Type);
+
+        Assert.NotNull(
+            inboxMessage.ProcessedAtUtc);
+
+        var outboxMessage =
+            await verificationContext
+                .OutboxMessages
+                .AsNoTracking()
+                .SingleAsync(
+                    message =>
+                        message.Id == eventId);
+
+        Assert.NotNull(
+            outboxMessage.ProcessedAtUtc);
     }
 
     [Fact]
@@ -1603,18 +1611,19 @@ public sealed class StockDepletedPipelineEndToEndTests
         await context.SaveChangesAsync();
     }
 
-    private static ServiceProvider CreateRecommendationValidationFailureServiceProvider(
+    private static ServiceProvider CreateRecommendationFallbackServiceProvider(
     OutboxTestDatabase database,
     KafkaTestTopic topic,
-    RecommendationProbe recommendationProbe)
+    FakeChatCompletionService fakeChatCompletionService)
     {
         var services =
             new ServiceCollection();
 
         services.AddLogging();
 
-        services.AddSingleton(
-            recommendationProbe);
+        services.AddSingleton<
+            IChatCompletionService>(
+            fakeChatCompletionService);
 
         services.AddScoped<
             ICorrelationContext,
@@ -1653,8 +1662,14 @@ public sealed class StockDepletedPipelineEndToEndTests
             SqlAlternativeCandidateProvider>();
 
         services.AddScoped<
+            SemanticKernelAlternativeRecommendationGenerator>();
+
+        services.AddScoped<
+            DeterministicAlternativeRecommendationGenerator>();
+
+        services.AddScoped<
             IAlternativeRecommendationGenerator,
-            FailingAlternativeRecommendationGenerator>();
+            ResilientAlternativeRecommendationGenerator>();
 
         services.AddScoped<
             IIntegrationEventHandler<
@@ -1668,52 +1683,6 @@ public sealed class StockDepletedPipelineEndToEndTests
                 StockDepletedIntegrationEvent>>();
 
         return services.BuildServiceProvider();
-    }
-
-    private sealed class FailingAlternativeRecommendationGenerator
-    : IAlternativeRecommendationGenerator
-    {
-        private readonly RecommendationProbe
-            _recommendationProbe;
-
-        public FailingAlternativeRecommendationGenerator(
-            RecommendationProbe recommendationProbe)
-        {
-            ArgumentNullException.ThrowIfNull(
-                recommendationProbe);
-
-            _recommendationProbe =
-                recommendationProbe;
-        }
-
-        public Task<AlternativeRecommendationResult> GenerateAsync(
-            AlternativeRecommendationRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            ArgumentNullException.ThrowIfNull(
-                request);
-
-            _recommendationProbe.Record();
-
-            throw new AlternativeRecommendationValidationException(
-                "Simulated invalid recommendation.");
-        }
-    }
-
-    private sealed class RecommendationProbe
-    {
-        private int
-            _invocationCount;
-
-        public int InvocationCount =>
-            Volatile.Read(
-                ref _invocationCount);
-
-        public void Record()
-        {
-            Interlocked.Increment(
-                ref _invocationCount);
-        }
     }
 
     private static ServiceProvider CreateCandidateRetrievalServiceProvider(
