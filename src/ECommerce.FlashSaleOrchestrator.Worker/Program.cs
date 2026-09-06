@@ -1,12 +1,12 @@
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
 using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
 using ECommerce.FlashSaleOrchestrator.Infrastructure;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
 using ECommerce.FlashSaleOrchestrator.Worker.BackgroundServices;
 using ECommerce.FlashSaleOrchestrator.Worker.IntegrationEvents.Inventory;
+using ECommerce.FlashSaleOrchestrator.Worker.Messaging.DeadLetter;
 using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
 using ECommerce.FlashSaleOrchestrator.Worker.Resilience;
-using ECommerce.FlashSaleOrchestrator.Worker.Messaging.DeadLetter;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
 
 var builder =
     Host.CreateApplicationBuilder(args);
@@ -33,6 +33,28 @@ if (string.IsNullOrWhiteSpace(
         "Environment variable 'FLASHSALE_OPENAI_MODEL_ID' must be configured.");
 }
 
+var openAiEndpointValue =
+    Environment.GetEnvironmentVariable(
+        "FLASHSALE_OPENAI_ENDPOINT");
+
+if (string.IsNullOrWhiteSpace(
+    openAiEndpointValue))
+{
+    throw new InvalidOperationException(
+        "Environment variable 'FLASHSALE_OPENAI_ENDPOINT' must be configured.");
+}
+
+if (!Uri.TryCreate(
+        openAiEndpointValue,
+        UriKind.Absolute,
+        out var openAiEndpoint) ||
+    (openAiEndpoint.Scheme != Uri.UriSchemeHttp &&
+     openAiEndpoint.Scheme != Uri.UriSchemeHttps))
+{
+    throw new InvalidOperationException(
+        "Environment variable 'FLASHSALE_OPENAI_ENDPOINT' must contain a valid absolute HTTP or HTTPS URI.");
+}
+
 var openAiApiKey =
     Environment.GetEnvironmentVariable(
         "FLASHSALE_OPENAI_API_KEY");
@@ -46,6 +68,11 @@ if (string.IsNullOrWhiteSpace(
 
 builder.Services.AddInfrastructure(
     sqlConnectionString);
+
+builder.Services.AddAlternativeRecommendationAi(
+    openAiModelId,
+    openAiEndpoint,
+    openAiApiKey);
 
 builder.Services
     .AddOptions<KafkaConsumerOptions>()
@@ -91,6 +118,10 @@ builder.Services
 
 builder.Services.AddSingleton<
     IntegrationEventRetryExecutor>();
+
+builder.Services.AddSingleton<
+    IDeadLetterPublisher,
+    KafkaDeadLetterPublisher>();
 
 builder.Services.AddScoped<
     IIntegrationEventHandler<

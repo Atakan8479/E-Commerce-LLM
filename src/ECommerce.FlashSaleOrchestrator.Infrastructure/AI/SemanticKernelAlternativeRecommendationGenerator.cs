@@ -33,10 +33,14 @@ internal sealed class SemanticKernelAlternativeRecommendationGenerator
 
         var prompt = AlternativeRecommendationPromptBuilder.Build(request);
 
-        var executionSettings = new OpenAIPromptExecutionSettings
-        {
-            ResponseFormat = typeof(AlternativeRecommendationModelResponse)
-        };
+        var executionSettings =
+            new OpenAIPromptExecutionSettings
+            {
+                Temperature = 0,
+                ResponseFormat =
+                    typeof(
+                        AlternativeRecommendationModelResponse)
+            };
 
         var response = await _chatCompletionService.GetChatMessageContentAsync(
             prompt,
