@@ -2,5 +2,5 @@
     .AlternativeRecommendations.SemanticCaching;
 
 public sealed record SemanticRecommendationCacheLookup(
-    ReadOnlyMemory<float> Embedding,
+    SemanticRecommendationEmbedding Embedding,
     SemanticRecommendationCacheCompatibility Compatibility);

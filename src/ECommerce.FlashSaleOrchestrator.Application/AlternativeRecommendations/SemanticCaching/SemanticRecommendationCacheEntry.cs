@@ -3,7 +3,7 @@
 
 public sealed record SemanticRecommendationCacheEntry(
     string EntryId,
-    ReadOnlyMemory<float> Embedding,
+    SemanticRecommendationEmbedding Embedding,
     SemanticRecommendationCacheCompatibility Compatibility,
     AlternativeRecommendationResult Result,
     DateTime CreatedAtUtc);
