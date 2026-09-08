@@ -1,3 +1,5 @@
+name: e-ticaret-llm
+
 services:
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
@@ -95,6 +97,39 @@ services:
         -X brokers=redpanda:9092
 
 
+  redis:
+    image: redis:8.10.1
+    container_name: flashsale-redis
+
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - "${REDIS_PASSWORD}"
+
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+
+    ports:
+      - "127.0.0.1:6379:6379"
+
+    volumes:
+      - flashsale_redis_data:/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli ping | grep -q PONG"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+
 volumes:
   flashsale_sql_data:
   flashsale_redpanda_data:
+  flashsale_redis_data:
