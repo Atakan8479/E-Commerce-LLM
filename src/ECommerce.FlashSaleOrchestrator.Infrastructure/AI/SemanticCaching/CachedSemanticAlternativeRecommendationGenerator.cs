@@ -3,6 +3,7 @@
 using ECommerce.FlashSaleOrchestrator.Application
     .AlternativeRecommendations.SemanticCaching;
 using Microsoft.Extensions.Logging;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure
     .AI.SemanticCaching;
@@ -10,7 +11,8 @@ namespace ECommerce.FlashSaleOrchestrator.Infrastructure
 internal sealed class CachedSemanticAlternativeRecommendationGenerator
     : IAlternativeRecommendationGenerator
 {
-    private readonly IAlternativeRecommendationGenerator
+    private readonly
+        IUncachedAlternativeRecommendationGenerator
         _primaryGenerator;
 
     private readonly ISemanticRecommendationEmbeddingGenerator
@@ -30,7 +32,7 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
         _logger;
 
     public CachedSemanticAlternativeRecommendationGenerator(
-        IAlternativeRecommendationGenerator primaryGenerator,
+        IUncachedAlternativeRecommendationGenerator primaryGenerator,
         ISemanticRecommendationEmbeddingGenerator embeddingGenerator,
         ISemanticRecommendationCache cache,
         SemanticRecommendationRepresentationBuilder representationBuilder,

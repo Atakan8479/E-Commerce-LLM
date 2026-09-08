@@ -6,8 +6,10 @@ using Microsoft.SemanticKernel.Connectors.OpenAI;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
 
-internal sealed class SemanticKernelAlternativeRecommendationGenerator
-    : IAlternativeRecommendationGenerator
+internal sealed class
+    SemanticKernelAlternativeRecommendationGenerator
+    : IAlternativeRecommendationGenerator,
+      IUncachedAlternativeRecommendationGenerator
 {
     private static readonly JsonSerializerOptions JsonOptions =
         new(JsonSerializerDefaults.Web);

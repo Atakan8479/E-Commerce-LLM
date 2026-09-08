@@ -7,6 +7,7 @@ using ECommerce.FlashSaleOrchestrator.Application
 using ECommerce.FlashSaleOrchestrator.Infrastructure
     .AI.SemanticCaching;
 using Microsoft.Extensions.Logging.Abstractions;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
 
 namespace ECommerce.FlashSaleOrchestrator
     .Infrastructure.IntegrationTests.AI.SemanticCaching;
@@ -545,7 +546,7 @@ public sealed class
     }
 
     private sealed class FakePrimaryGenerator
-        : IAlternativeRecommendationGenerator
+        : IUncachedAlternativeRecommendationGenerator
     {
         private readonly AlternativeRecommendationResult
             _result;
