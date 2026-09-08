@@ -1,4 +1,5 @@
-﻿using ECommerce.FlashSaleOrchestrator.Application.AlternativeCandidates;
+﻿using ECommerce.FlashSaleOrchestrator.Application
+    .AlternativeCandidates;
 using ECommerce.FlashSaleOrchestrator.Application
     .AlternativeRecommendations;
 using ECommerce.FlashSaleOrchestrator.Application
@@ -204,15 +205,294 @@ public sealed class
             cache.StoreCount);
     }
 
+    [Fact]
+    public async Task GenerateAsync_ShouldUsePrimary_WhenEmbeddingGenerationFails()
+    {
+        var request =
+            CreateRequest();
+
+        var primaryResult =
+            CreatePrimaryResult(
+                request);
+
+        var primary =
+            new FakePrimaryGenerator(
+                primaryResult);
+
+        var cache =
+            new FakeSemanticRecommendationCache();
+
+        var embeddingGenerator =
+            new FakeEmbeddingGenerator
+            {
+                ExceptionToThrow =
+                    new InvalidOperationException(
+                        "Embedding provider unavailable.")
+            };
+
+        var generator =
+            CreateGenerator(
+                primary,
+                cache,
+                embeddingGenerator);
+
+        var result =
+            await generator.GenerateAsync(
+                request);
+
+        Assert.Same(
+            primaryResult,
+            result);
+
+        Assert.Equal(
+            1,
+            primary.CallCount);
+
+        Assert.Equal(
+            1,
+            embeddingGenerator.CallCount);
+
+        Assert.Equal(
+            0,
+            cache.FindCount);
+
+        Assert.Equal(
+            0,
+            cache.StoreCount);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_ShouldUsePrimary_WhenCacheLookupFails()
+    {
+        var request =
+            CreateRequest();
+
+        var primaryResult =
+            CreatePrimaryResult(
+                request);
+
+        var primary =
+            new FakePrimaryGenerator(
+                primaryResult);
+
+        var cache =
+            new FakeSemanticRecommendationCache
+            {
+                FindException =
+                    new InvalidOperationException(
+                        "Cache unavailable.")
+            };
+
+        var generator =
+            CreateGenerator(
+                primary,
+                cache);
+
+        var result =
+            await generator.GenerateAsync(
+                request);
+
+        Assert.Same(
+            primaryResult,
+            result);
+
+        Assert.Equal(
+            1,
+            primary.CallCount);
+
+        Assert.Equal(
+            1,
+            cache.FindCount);
+
+        Assert.Equal(
+            0,
+            cache.StoreCount);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_ShouldReturnPrimaryResult_WhenCacheStoreFails()
+    {
+        var request =
+            CreateRequest();
+
+        var primaryResult =
+            CreatePrimaryResult(
+                request);
+
+        var primary =
+            new FakePrimaryGenerator(
+                primaryResult);
+
+        var cache =
+            new FakeSemanticRecommendationCache
+            {
+                StoreException =
+                    new InvalidOperationException(
+                        "Cache write failed.")
+            };
+
+        var generator =
+            CreateGenerator(
+                primary,
+                cache);
+
+        var result =
+            await generator.GenerateAsync(
+                request);
+
+        Assert.Same(
+            primaryResult,
+            result);
+
+        Assert.Equal(
+            1,
+            primary.CallCount);
+
+        Assert.Equal(
+            1,
+            cache.FindCount);
+
+        Assert.Equal(
+            1,
+            cache.StoreCount);
+
+        Assert.Null(
+            cache.StoredEntry);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_ShouldUsePrimary_WhenInvalidCacheEntryCannotBeRemoved()
+    {
+        var request =
+            CreateRequest();
+
+        var invalidCachedResult =
+            new AlternativeRecommendationResult(
+                [
+                    new AlternativeRecommendation(
+                        Guid.NewGuid(),
+                        "Stale recommendation")
+                ]);
+
+        var primaryResult =
+            CreatePrimaryResult(
+                request);
+
+        var primary =
+            new FakePrimaryGenerator(
+                primaryResult);
+
+        var cache =
+            new FakeSemanticRecommendationCache
+            {
+                MatchToReturn =
+                    new SemanticRecommendationCacheMatch(
+                        "stale-entry",
+                        0.99,
+                        invalidCachedResult),
+
+                RemoveException =
+                    new InvalidOperationException(
+                        "Cache remove failed.")
+            };
+
+        var generator =
+            CreateGenerator(
+                primary,
+                cache);
+
+        var result =
+            await generator.GenerateAsync(
+                request);
+
+        Assert.Same(
+            primaryResult,
+            result);
+
+        Assert.Equal(
+            1,
+            primary.CallCount);
+
+        Assert.Equal(
+            1,
+            cache.RemoveCount);
+
+        Assert.Equal(
+            0,
+            cache.StoreCount);
+
+        Assert.Null(
+            cache.LastRemovedEntryId);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_ShouldPropagateCancellation()
+    {
+        var request =
+            CreateRequest();
+
+        var primary =
+            new FakePrimaryGenerator(
+                CreatePrimaryResult(
+                    request));
+
+        var cache =
+            new FakeSemanticRecommendationCache();
+
+        var embeddingGenerator =
+            new FakeEmbeddingGenerator();
+
+        var generator =
+            CreateGenerator(
+                primary,
+                cache,
+                embeddingGenerator);
+
+        using var cancellationTokenSource =
+            new CancellationTokenSource();
+
+        cancellationTokenSource.Cancel();
+
+        await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(
+            () =>
+                generator.GenerateAsync(
+                    request,
+                    cancellationTokenSource.Token));
+
+        Assert.Equal(
+            0,
+            primary.CallCount);
+
+        Assert.Equal(
+            0,
+            embeddingGenerator.CallCount);
+
+        Assert.Equal(
+            0,
+            cache.FindCount);
+
+        Assert.Equal(
+            0,
+            cache.StoreCount);
+
+        Assert.Equal(
+            0,
+            cache.RemoveCount);
+    }
+
     private static
         CachedSemanticAlternativeRecommendationGenerator
         CreateGenerator(
             FakePrimaryGenerator primary,
-            FakeSemanticRecommendationCache cache)
+            FakeSemanticRecommendationCache cache,
+            ISemanticRecommendationEmbeddingGenerator?
+                embeddingGenerator = null)
     {
         return new CachedSemanticAlternativeRecommendationGenerator(
             primary,
-            new FakeEmbeddingGenerator(),
+            embeddingGenerator ??
+                new FakeEmbeddingGenerator(),
             cache,
             new SemanticRecommendationRepresentationBuilder(),
             new SemanticRecommendationCacheProfile(
@@ -296,12 +576,25 @@ public sealed class
     private sealed class FakeEmbeddingGenerator
         : ISemanticRecommendationEmbeddingGenerator
     {
+        public Exception?
+            ExceptionToThrow
+        { get; init; }
+
+        public int CallCount { get; private set; }
+
         public Task<SemanticRecommendationEmbedding>
             GenerateAsync(
                 string text,
                 CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            CallCount++;
+
+            if (ExceptionToThrow is not null)
+            {
+                throw ExceptionToThrow;
+            }
 
             return Task.FromResult(
                 new SemanticRecommendationEmbedding(
@@ -319,6 +612,18 @@ public sealed class
     {
         public SemanticRecommendationCacheMatch?
             MatchToReturn
+        { get; init; }
+
+        public Exception?
+            FindException
+        { get; init; }
+
+        public Exception?
+            StoreException
+        { get; init; }
+
+        public Exception?
+            RemoveException
         { get; init; }
 
         public SemanticRecommendationCacheEntry?
@@ -344,6 +649,11 @@ public sealed class
 
             FindCount++;
 
+            if (FindException is not null)
+            {
+                throw FindException;
+            }
+
             return Task.FromResult(
                 MatchToReturn);
         }
@@ -355,6 +665,11 @@ public sealed class
             cancellationToken.ThrowIfCancellationRequested();
 
             StoreCount++;
+
+            if (StoreException is not null)
+            {
+                throw StoreException;
+            }
 
             StoredEntry =
                 entry;
@@ -369,6 +684,11 @@ public sealed class
             cancellationToken.ThrowIfCancellationRequested();
 
             RemoveCount++;
+
+            if (RemoveException is not null)
+            {
+                throw RemoveException;
+            }
 
             LastRemovedEntryId =
                 entryId;
