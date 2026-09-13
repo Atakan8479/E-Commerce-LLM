@@ -4,12 +4,14 @@ using System.Text.Json;
 using ECommerce.FlashSaleOrchestrator.Api.BackgroundServices;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.AlternativeCandidates;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.AI.SemanticCaching;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.AI;
 using Microsoft.SemanticKernel.ChatCompletion;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Observability;
 using ECommerce.FlashSaleOrchestrator.Application.AlternativeCandidates;
 using ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations;
+using ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations.SemanticCaching;
 using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
 using ECommerce.FlashSaleOrchestrator.Domain.Inventory;
 using ECommerce.FlashSaleOrchestrator.Domain.Inventory.Events;
@@ -1612,9 +1614,9 @@ public sealed class StockDepletedPipelineEndToEndTests
     }
 
     private static ServiceProvider CreateRecommendationFallbackServiceProvider(
-    OutboxTestDatabase database,
-    KafkaTestTopic topic,
-    FakeChatCompletionService fakeChatCompletionService)
+        OutboxTestDatabase database,
+        KafkaTestTopic topic,
+        FakeChatCompletionService fakeChatCompletionService)
     {
         var services =
             new ServiceCollection();
@@ -1663,6 +1665,33 @@ public sealed class StockDepletedPipelineEndToEndTests
 
         services.AddScoped<
             SemanticKernelAlternativeRecommendationGenerator>();
+
+        services.AddScoped<
+            IUncachedAlternativeRecommendationGenerator>(
+            serviceProvider =>
+                serviceProvider.GetRequiredService<
+                    SemanticKernelAlternativeRecommendationGenerator>());
+
+        services.AddSingleton<
+            ISemanticRecommendationEmbeddingGenerator,
+            E2eSemanticRecommendationEmbeddingGenerator>();
+
+        services.AddSingleton<
+            ISemanticRecommendationCache,
+            E2eCacheMissSemanticRecommendationCache>();
+
+        services.AddSingleton(
+            new SemanticRecommendationCacheProfile(
+                "e2e-prompt-v1",
+                "e2e-schema-v1",
+                "e2e-cache-v1",
+                "e2e-embedding-v1"));
+
+        services.AddSingleton<
+            SemanticRecommendationRepresentationBuilder>();
+
+        services.AddScoped<
+            CachedSemanticAlternativeRecommendationGenerator>();
 
         services.AddScoped<
             DeterministicAlternativeRecommendationGenerator>();
@@ -1813,6 +1842,71 @@ public sealed class StockDepletedPipelineEndToEndTests
             return Task.FromResult(
                 new AlternativeRecommendationResult(
                     []));
+        }
+    }
+
+    private sealed class E2eSemanticRecommendationEmbeddingGenerator
+        : ISemanticRecommendationEmbeddingGenerator
+    {
+        public Task<SemanticRecommendationEmbedding> GenerateAsync(
+            string text,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(
+                text);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.FromResult(
+                new SemanticRecommendationEmbedding(
+                    new float[]
+                    {
+                        0.1f,
+                        0.2f,
+                        0.3f
+                    }));
+        }
+    }
+
+    private sealed class E2eCacheMissSemanticRecommendationCache
+        : ISemanticRecommendationCache
+    {
+        public Task<SemanticRecommendationCacheMatch?> FindAsync(
+            SemanticRecommendationCacheLookup lookup,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(
+                lookup);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.FromResult<
+                SemanticRecommendationCacheMatch?>(
+                null);
+        }
+
+        public Task StoreAsync(
+            SemanticRecommendationCacheEntry entry,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(
+                entry);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.CompletedTask;
+        }
+
+        public Task RemoveAsync(
+            string entryId,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(
+                entryId);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.CompletedTask;
         }
     }
 

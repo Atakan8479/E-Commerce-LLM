@@ -6,8 +6,9 @@ using Microsoft.SemanticKernel.Connectors.OpenAI;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
 
-internal sealed class SemanticKernelAlternativeRecommendationGenerator
-    : IAlternativeRecommendationGenerator
+internal sealed class
+    SemanticKernelAlternativeRecommendationGenerator
+    : IUncachedAlternativeRecommendationGenerator
 {
     private static readonly JsonSerializerOptions JsonOptions =
         new(JsonSerializerDefaults.Web);
@@ -33,10 +34,30 @@ internal sealed class SemanticKernelAlternativeRecommendationGenerator
 
         var prompt = AlternativeRecommendationPromptBuilder.Build(request);
 
-        var executionSettings = new OpenAIPromptExecutionSettings
-        {
-            ResponseFormat = typeof(AlternativeRecommendationModelResponse)
-        };
+        #pragma warning disable SKEXP0010
+
+        var executionSettings =
+            new OpenAIPromptExecutionSettings
+            {
+                Temperature =
+                    0,
+
+                MaxTokens =
+                    512,
+
+                ResponseFormat =
+                    typeof(
+                        AlternativeRecommendationModelResponse),
+
+                ExtraBody =
+                    new Dictionary<string, object?>
+                    {
+                        ["reasoning_effort"] =
+                            "none"
+                    }
+            };
+
+#pragma warning restore SKEXP0010
 
         var response = await _chatCompletionService.GetChatMessageContentAsync(
             prompt,
