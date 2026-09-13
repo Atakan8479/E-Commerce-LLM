@@ -1,16 +1,21 @@
-﻿using ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations;
+﻿using ECommerce.FlashSaleOrchestrator.Application
+    .AlternativeRecommendations;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .AI.SemanticCaching;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.SemanticKernel;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
 
-public static class AlternativeRecommendationAiDependencyInjection
+public static class
+    AlternativeRecommendationAiDependencyInjection
 {
-    public static IServiceCollection AddAlternativeRecommendationAi(
-        this IServiceCollection services,
-        string modelId,
-        Uri endpoint,
-        string apiKey)
+    public static IServiceCollection
+        AddAlternativeRecommendationAi(
+            this IServiceCollection services,
+            string modelId,
+            Uri endpoint,
+            string apiKey)
     {
         ArgumentNullException.ThrowIfNull(
             services);
@@ -29,7 +34,8 @@ public static class AlternativeRecommendationAiDependencyInjection
              endpoint.Scheme != Uri.UriSchemeHttps))
         {
             throw new ArgumentException(
-                "AI endpoint must be an absolute HTTP or HTTPS URI.",
+                "The AI endpoint must be an absolute " +
+                "HTTP or HTTPS URI.",
                 nameof(endpoint));
         }
 
@@ -42,6 +48,15 @@ public static class AlternativeRecommendationAiDependencyInjection
 
         services.AddScoped<
             SemanticKernelAlternativeRecommendationGenerator>();
+
+        services.AddScoped<
+            IUncachedAlternativeRecommendationGenerator>(
+            serviceProvider =>
+                serviceProvider.GetRequiredService<
+                    SemanticKernelAlternativeRecommendationGenerator>());
+
+        services.AddScoped<
+            CachedSemanticAlternativeRecommendationGenerator>();
 
         services.AddScoped<
             DeterministicAlternativeRecommendationGenerator>();

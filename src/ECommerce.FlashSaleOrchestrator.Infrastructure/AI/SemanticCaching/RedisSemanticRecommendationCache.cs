@@ -1,13 +1,13 @@
-﻿using System.Globalization;
-using System.Text;
-using System.Text.Json;
-using ECommerce.FlashSaleOrchestrator.Application
-    .AlternativeRecommendations;
-using ECommerce.FlashSaleOrchestrator.Application
-    .AlternativeRecommendations.SemanticCaching;
+﻿using ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations;
+using ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations.SemanticCaching;
 using NRedisStack.RedisStackCommands;
 using NRedisStack.Search;
+using NRedisStack.Search.Literals.Enums;
 using StackExchange.Redis;
+using System.Globalization;
+using System.Text;
+using System.Text.Json;
+using static NRedisStack.Search.Schema;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure
     .AI.SemanticCaching;
@@ -25,6 +25,15 @@ internal sealed class
     private readonly
         RedisSemanticRecommendationCacheOptions
         _options;
+
+    private readonly SemaphoreSlim
+    _indexInitializationLock =
+        new(
+            1,
+            1);
+
+    private volatile bool
+        _indexInitialized;
 
     public RedisSemanticRecommendationCache(
         IDatabase database,
@@ -53,6 +62,9 @@ internal sealed class
             lookup.Compatibility);
 
         cancellationToken.ThrowIfCancellationRequested();
+
+        await EnsureIndexAsync(
+            cancellationToken);
 
         var queryVector =
             RedisFloat32VectorSerializer.Serialize(
@@ -192,6 +204,9 @@ internal sealed class
 
         cancellationToken.ThrowIfCancellationRequested();
 
+        await EnsureIndexAsync(
+            cancellationToken);
+
         var key =
             RedisSemanticRecommendationCacheSchema
                 .BuildKey(
@@ -317,6 +332,127 @@ internal sealed class
                 key)
             .WaitAsync(
                 cancellationToken);
+    }
+
+    private async Task EnsureIndexAsync(
+    CancellationToken cancellationToken)
+    {
+        if (_indexInitialized)
+        {
+            return;
+        }
+
+        await _indexInitializationLock.WaitAsync(
+            cancellationToken);
+
+        try
+        {
+            if (_indexInitialized)
+            {
+                return;
+            }
+
+            var schema =
+                BuildIndexSchema();
+
+            var createParameters =
+                new FTCreateParams()
+                    .On(
+                        IndexDataType.HASH)
+                    .Prefix(
+                        _options.KeyPrefix);
+
+            try
+            {
+                var created =
+                    await _database
+                        .FT()
+                        .CreateAsync(
+                            _options.IndexName,
+                            createParameters,
+                            schema)
+                        .WaitAsync(
+                            cancellationToken);
+
+                if (!created)
+                {
+                    throw new InvalidOperationException(
+                        "Redis semantic cache index " +
+                        "could not be created.");
+                }
+            }
+            catch (RedisServerException exception)
+                when (IsIndexAlreadyCreated(
+                    exception))
+            {
+            }
+
+            _indexInitialized =
+                true;
+        }
+        finally
+        {
+            _indexInitializationLock.Release();
+        }
+    }
+
+    private Schema BuildIndexSchema()
+    {
+        return new Schema()
+            .AddTagField(
+                new FieldName(
+                    RedisSemanticRecommendationCacheSchema
+                        .CandidateFingerprint,
+                    RedisSemanticRecommendationCacheSchema
+                        .CandidateFingerprint))
+            .AddTagField(
+                new FieldName(
+                    RedisSemanticRecommendationCacheSchema
+                        .PromptVersion,
+                    RedisSemanticRecommendationCacheSchema
+                        .PromptVersion))
+            .AddTagField(
+                new FieldName(
+                    RedisSemanticRecommendationCacheSchema
+                        .SchemaVersion,
+                    RedisSemanticRecommendationCacheSchema
+                        .SchemaVersion))
+            .AddTagField(
+                new FieldName(
+                    RedisSemanticRecommendationCacheSchema
+                        .SemanticCacheVersion,
+                    RedisSemanticRecommendationCacheSchema
+                        .SemanticCacheVersion))
+            .AddTagField(
+                new FieldName(
+                    RedisSemanticRecommendationCacheSchema
+                        .EmbeddingProfileVersion,
+                    RedisSemanticRecommendationCacheSchema
+                        .EmbeddingProfileVersion))
+            .AddVectorField(
+                RedisSemanticRecommendationCacheSchema
+                    .Embedding,
+                VectorField.VectorAlgo.FLAT,
+                new Dictionary<string, object>
+                {
+                    ["TYPE"] =
+                        "FLOAT32",
+
+                    ["DIM"] =
+                        _options.VectorDimensions
+                            .ToString(),
+
+                    ["DISTANCE_METRIC"] =
+                        "COSINE"
+                });
+    }
+
+    private static bool IsIndexAlreadyCreated(
+        RedisServerException exception)
+    {
+        return exception.Message.Contains(
+            "already exists",
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private static string BuildSearchExpression(

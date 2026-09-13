@@ -2,6 +2,8 @@
 using ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
 using Microsoft.Extensions.Logging.Abstractions;
+using ECommerce.FlashSaleOrchestrator.Application .AlternativeRecommendations.SemanticCaching;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.AI.SemanticCaching;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.AI;
 
@@ -194,25 +196,98 @@ public sealed class ResilientAlternativeRecommendationGeneratorTests
                     cancellationTokenSource.Token));
 
         Assert.Equal(
-            1,
+            0,
             fakeChatCompletionService.CallCount);
     }
 
-    private static ResilientAlternativeRecommendationGenerator CreateGenerator(
-        FakeChatCompletionService fakeChatCompletionService)
+    private static
+        ResilientAlternativeRecommendationGenerator
+        CreateGenerator(
+            FakeChatCompletionService fakeChatCompletionService)
     {
-        var primaryGenerator =
+        var uncachedGenerator =
             new SemanticKernelAlternativeRecommendationGenerator(
                 fakeChatCompletionService);
+
+        var cachedGenerator =
+            new CachedSemanticAlternativeRecommendationGenerator(
+                uncachedGenerator,
+                new FakeEmbeddingGenerator(),
+                new CacheMissSemanticRecommendationCache(),
+                new SemanticRecommendationRepresentationBuilder(),
+                new SemanticRecommendationCacheProfile(
+                    "prompt-v1",
+                    "schema-v1",
+                    "cache-v1",
+                    "embedding-v1"),
+                NullLogger<
+                    CachedSemanticAlternativeRecommendationGenerator>
+                    .Instance);
 
         var fallbackGenerator =
             new DeterministicAlternativeRecommendationGenerator();
 
         return new ResilientAlternativeRecommendationGenerator(
-            primaryGenerator,
+            cachedGenerator,
             fallbackGenerator,
             NullLogger<
-                ResilientAlternativeRecommendationGenerator>.Instance);
+                ResilientAlternativeRecommendationGenerator>
+                .Instance);
+    }
+
+    private sealed class FakeEmbeddingGenerator
+    : ISemanticRecommendationEmbeddingGenerator
+    {
+        public Task<SemanticRecommendationEmbedding>
+            GenerateAsync(
+                string text,
+                CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.FromResult(
+                new SemanticRecommendationEmbedding(
+                    new float[]
+                    {
+                    0.1f,
+                    0.2f,
+                    0.3f
+                    }));
+        }
+    }
+
+    private sealed class CacheMissSemanticRecommendationCache
+        : ISemanticRecommendationCache
+    {
+        public Task<SemanticRecommendationCacheMatch?>
+            FindAsync(
+                SemanticRecommendationCacheLookup lookup,
+                CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.FromResult<
+                SemanticRecommendationCacheMatch?>(
+                null);
+        }
+
+        public Task StoreAsync(
+            SemanticRecommendationCacheEntry entry,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.CompletedTask;
+        }
+
+        public Task RemoveAsync(
+            string entryId,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.CompletedTask;
+        }
     }
 
     private static AlternativeRecommendationRequest CreateRequest(

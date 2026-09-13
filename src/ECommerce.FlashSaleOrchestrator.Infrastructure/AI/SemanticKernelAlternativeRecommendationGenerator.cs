@@ -8,8 +8,7 @@ namespace ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
 
 internal sealed class
     SemanticKernelAlternativeRecommendationGenerator
-    : IAlternativeRecommendationGenerator,
-      IUncachedAlternativeRecommendationGenerator
+    : IUncachedAlternativeRecommendationGenerator
 {
     private static readonly JsonSerializerOptions JsonOptions =
         new(JsonSerializerDefaults.Web);
@@ -35,14 +34,30 @@ internal sealed class
 
         var prompt = AlternativeRecommendationPromptBuilder.Build(request);
 
+        #pragma warning disable SKEXP0010
+
         var executionSettings =
             new OpenAIPromptExecutionSettings
             {
-                Temperature = 0,
+                Temperature =
+                    0,
+
+                MaxTokens =
+                    512,
+
                 ResponseFormat =
                     typeof(
-                        AlternativeRecommendationModelResponse)
+                        AlternativeRecommendationModelResponse),
+
+                ExtraBody =
+                    new Dictionary<string, object?>
+                    {
+                        ["reasoning_effort"] =
+                            "none"
+                    }
             };
+
+#pragma warning restore SKEXP0010
 
         var response = await _chatCompletionService.GetChatMessageContentAsync(
             prompt,

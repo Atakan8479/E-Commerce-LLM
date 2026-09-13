@@ -1,9 +1,6 @@
-﻿using ECommerce.FlashSaleOrchestrator.Application
-    .AlternativeRecommendations;
-using ECommerce.FlashSaleOrchestrator.Application
-    .AlternativeRecommendations.SemanticCaching;
-using ECommerce.FlashSaleOrchestrator.Infrastructure
-    .AI.SemanticCaching;
+﻿using ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations;
+using ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations.SemanticCaching;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.AI.SemanticCaching;
 using NRedisStack.RedisStackCommands;
 using NRedisStack.Search;
 using NRedisStack.Search.Literals.Enums;

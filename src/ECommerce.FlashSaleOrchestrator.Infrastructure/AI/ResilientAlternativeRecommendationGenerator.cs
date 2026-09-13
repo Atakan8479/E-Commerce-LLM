@@ -1,29 +1,43 @@
-﻿using ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations;
+﻿using ECommerce.FlashSaleOrchestrator.Application
+    .AlternativeRecommendations;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .AI.SemanticCaching;
 using Microsoft.Extensions.Logging;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
 
-internal sealed class ResilientAlternativeRecommendationGenerator
+internal sealed class
+    ResilientAlternativeRecommendationGenerator
     : IAlternativeRecommendationGenerator
 {
-    private const int MaxAttempts = 2;
+    private const int MaxAttempts =
+        2;
 
     private static readonly TimeSpan RetryDelay =
-        TimeSpan.FromMilliseconds(250);
+        TimeSpan.FromMilliseconds(
+            250);
 
-    private readonly SemanticKernelAlternativeRecommendationGenerator
+    private readonly
+        CachedSemanticAlternativeRecommendationGenerator
         _primaryGenerator;
 
-    private readonly DeterministicAlternativeRecommendationGenerator
+    private readonly
+        DeterministicAlternativeRecommendationGenerator
         _fallbackGenerator;
 
-    private readonly ILogger<ResilientAlternativeRecommendationGenerator>
+    private readonly
+        ILogger<
+            ResilientAlternativeRecommendationGenerator>
         _logger;
 
     public ResilientAlternativeRecommendationGenerator(
-        SemanticKernelAlternativeRecommendationGenerator primaryGenerator,
-        DeterministicAlternativeRecommendationGenerator fallbackGenerator,
-        ILogger<ResilientAlternativeRecommendationGenerator> logger)
+        CachedSemanticAlternativeRecommendationGenerator
+            primaryGenerator,
+        DeterministicAlternativeRecommendationGenerator
+            fallbackGenerator,
+        ILogger<
+            ResilientAlternativeRecommendationGenerator>
+            logger)
     {
         ArgumentNullException.ThrowIfNull(
             primaryGenerator);
@@ -44,9 +58,10 @@ internal sealed class ResilientAlternativeRecommendationGenerator
             logger;
     }
 
-    public async Task<AlternativeRecommendationResult> GenerateAsync(
-        AlternativeRecommendationRequest request,
-        CancellationToken cancellationToken = default)
+    public async Task<AlternativeRecommendationResult>
+        GenerateAsync(
+            AlternativeRecommendationRequest request,
+            CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(
             request);
@@ -69,7 +84,9 @@ internal sealed class ResilientAlternativeRecommendationGenerator
                     cancellationToken);
             }
             catch (OperationCanceledException)
-                when (cancellationToken.IsCancellationRequested)
+                when (
+                    cancellationToken
+                        .IsCancellationRequested)
             {
                 throw;
             }
