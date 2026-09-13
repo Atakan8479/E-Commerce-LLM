@@ -131,6 +131,54 @@ public sealed class ResilientAlternativeRecommendationGeneratorTests
     }
 
     [Fact]
+    public async Task GenerateAsync_ShouldNotCacheDeterministicFallback_WhenAllLlmAttemptsFail()
+    {
+        var candidateId =
+            Guid.NewGuid();
+
+        var fakeChatCompletionService =
+            new FakeChatCompletionService(
+                "{ invalid-json");
+
+        var cache =
+            new CacheMissSemanticRecommendationCache();
+
+        var generator =
+            CreateGenerator(
+                fakeChatCompletionService,
+                cache);
+
+        var result =
+            await generator.GenerateAsync(
+                CreateRequest(
+                    candidateId));
+
+        Assert.Equal(
+            2,
+            fakeChatCompletionService.CallCount);
+
+        Assert.Equal(
+            2,
+            cache.FindCount);
+
+        Assert.Equal(
+            0,
+            cache.StoreCount);
+
+        var recommendation =
+            Assert.Single(
+                result.Recommendations);
+
+        Assert.Equal(
+            candidateId,
+            recommendation.ProductId);
+
+        Assert.Equal(
+            "Selected from the validated deterministic candidate set.",
+            recommendation.Reason);
+    }
+
+    [Fact]
     public async Task GenerateAsync_ShouldNotCallLlm_WhenNoCandidatesExist()
     {
         var fakeChatCompletionService =
@@ -201,9 +249,10 @@ public sealed class ResilientAlternativeRecommendationGeneratorTests
     }
 
     private static
-        ResilientAlternativeRecommendationGenerator
-        CreateGenerator(
-            FakeChatCompletionService fakeChatCompletionService)
+    ResilientAlternativeRecommendationGenerator
+    CreateGenerator(
+        FakeChatCompletionService fakeChatCompletionService,
+        CacheMissSemanticRecommendationCache? cache = null)
     {
         var uncachedGenerator =
             new SemanticKernelAlternativeRecommendationGenerator(
@@ -213,7 +262,8 @@ public sealed class ResilientAlternativeRecommendationGeneratorTests
             new CachedSemanticAlternativeRecommendationGenerator(
                 uncachedGenerator,
                 new FakeEmbeddingGenerator(),
-                new CacheMissSemanticRecommendationCache(),
+                cache ??
+                    new CacheMissSemanticRecommendationCache(),
                 new SemanticRecommendationRepresentationBuilder(),
                 new SemanticRecommendationCacheProfile(
                     "prompt-v1",
@@ -257,14 +307,25 @@ public sealed class ResilientAlternativeRecommendationGeneratorTests
     }
 
     private sealed class CacheMissSemanticRecommendationCache
-        : ISemanticRecommendationCache
+    : ISemanticRecommendationCache
     {
+        public int FindCount { get; private set; }
+
+        public int StoreCount { get; private set; }
+
+        public int RemoveCount { get; private set; }
+
         public Task<SemanticRecommendationCacheMatch?>
             FindAsync(
                 SemanticRecommendationCacheLookup lookup,
                 CancellationToken cancellationToken = default)
         {
+            ArgumentNullException.ThrowIfNull(
+                lookup);
+
             cancellationToken.ThrowIfCancellationRequested();
+
+            FindCount++;
 
             return Task.FromResult<
                 SemanticRecommendationCacheMatch?>(
@@ -275,7 +336,12 @@ public sealed class ResilientAlternativeRecommendationGeneratorTests
             SemanticRecommendationCacheEntry entry,
             CancellationToken cancellationToken = default)
         {
+            ArgumentNullException.ThrowIfNull(
+                entry);
+
             cancellationToken.ThrowIfCancellationRequested();
+
+            StoreCount++;
 
             return Task.CompletedTask;
         }
@@ -284,7 +350,12 @@ public sealed class ResilientAlternativeRecommendationGeneratorTests
             string entryId,
             CancellationToken cancellationToken = default)
         {
+            ArgumentException.ThrowIfNullOrWhiteSpace(
+                entryId);
+
             cancellationToken.ThrowIfCancellationRequested();
+
+            RemoveCount++;
 
             return Task.CompletedTask;
         }
