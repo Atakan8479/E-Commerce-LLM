@@ -6,6 +6,7 @@ using ECommerce.FlashSaleOrchestrator.Domain.Products;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.AlternativeCandidates;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Repositories;
+using ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
@@ -62,6 +63,181 @@ public sealed class SqlServerPersistenceTests
         Assert.Equal(
             5,
             inventoryItem.AvailableQuantity.Value);
+    }
+
+    [Fact]
+    public async Task AlternativeRecommendationPlanRepository_ShouldPersistPlan()
+    {
+        await using var database =
+            await TestDatabase.CreateAsync();
+
+        var eventId =
+            Guid.NewGuid();
+
+        var originalProductId =
+            Guid.NewGuid();
+
+        var recommendedProductId =
+            Guid.NewGuid();
+
+        var correlationId =
+            $"correlation-{Guid.NewGuid():N}";
+
+        var createdAtUtc =
+            new DateTime(
+                2026,
+                9,
+                13,
+                21,
+                30,
+                0,
+                DateTimeKind.Utc);
+
+        var result =
+            new AlternativeRecommendationResult(
+                new[]
+                {
+                new AlternativeRecommendation(
+                    recommendedProductId,
+                    "Recommended from the validated candidate set.")
+                });
+
+        var plan =
+            new AlternativeRecommendationPlan(
+                eventId,
+                originalProductId,
+                result,
+                AlternativeRecommendationSource.Llm,
+                correlationId,
+                createdAtUtc);
+
+        await using (var writeContext =
+            database.CreateContext())
+        {
+            var repository =
+                new AlternativeRecommendationPlanRepository(
+                    writeContext);
+
+            await repository.AddAsync(
+                plan);
+
+            await writeContext.SaveChangesAsync();
+        }
+
+        await using var queryContext =
+            database.CreateContext();
+
+        var persistedPlan =
+            await queryContext
+                .AlternativeRecommendationPlans
+                .AsNoTracking()
+                .SingleAsync(
+                    candidate =>
+                        candidate.EventId == eventId);
+
+        Assert.Equal(
+            eventId,
+            persistedPlan.EventId);
+
+        Assert.Equal(
+            originalProductId,
+            persistedPlan.OriginalProductId);
+
+        Assert.Equal(
+            AlternativeRecommendationSource.Llm,
+            persistedPlan.Source);
+
+        Assert.Equal(
+            correlationId,
+            persistedPlan.CorrelationId);
+
+        Assert.Equal(
+            createdAtUtc,
+            persistedPlan.CreatedAtUtc);
+
+        using var payload =
+            JsonDocument.Parse(
+                persistedPlan.PayloadJson);
+
+        var recommendations =
+            payload.RootElement
+                .GetProperty(
+                    "recommendations");
+
+        var recommendation =
+            Assert.Single(
+                recommendations.EnumerateArray());
+
+        Assert.Equal(
+            recommendedProductId,
+            recommendation
+                .GetProperty(
+                    "productId")
+                .GetGuid());
+
+        Assert.Equal(
+            "Recommended from the validated candidate set.",
+            recommendation
+                .GetProperty(
+                    "reason")
+                .GetString());
+    }
+
+    [Fact]
+    public async Task AlternativeRecommendationPlanRepository_ShouldRejectDuplicateEventId()
+    {
+        await using var database =
+            await TestDatabase.CreateAsync();
+
+        var eventId =
+            Guid.NewGuid();
+
+        var firstPlan =
+            new AlternativeRecommendationPlan(
+                eventId,
+                Guid.NewGuid(),
+                new AlternativeRecommendationResult(
+                    Array.Empty<AlternativeRecommendation>()),
+                AlternativeRecommendationSource.Deterministic,
+                $"correlation-{Guid.NewGuid():N}",
+                DateTime.UtcNow);
+
+        await using (var firstContext =
+            database.CreateContext())
+        {
+            var repository =
+                new AlternativeRecommendationPlanRepository(
+                    firstContext);
+
+            await repository.AddAsync(
+                firstPlan);
+
+            await firstContext.SaveChangesAsync();
+        }
+
+        var duplicatePlan =
+            new AlternativeRecommendationPlan(
+                eventId,
+                Guid.NewGuid(),
+                new AlternativeRecommendationResult(
+                    Array.Empty<AlternativeRecommendation>()),
+                AlternativeRecommendationSource.Cache,
+                $"correlation-{Guid.NewGuid():N}",
+                DateTime.UtcNow);
+
+        await using var duplicateContext =
+            database.CreateContext();
+
+        var duplicateRepository =
+            new AlternativeRecommendationPlanRepository(
+                duplicateContext);
+
+        await duplicateRepository.AddAsync(
+            duplicatePlan);
+
+        await Assert.ThrowsAsync<DbUpdateException>(
+            () =>
+                duplicateContext.SaveChangesAsync());
     }
 
     [Fact]
