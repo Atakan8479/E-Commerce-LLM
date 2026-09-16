@@ -2,44 +2,70 @@
 using System.Diagnostics;
 using System.Text.Json;
 using ECommerce.FlashSaleOrchestrator.Api.BackgroundServices;
-using ECommerce.FlashSaleOrchestrator.Application.Abstractions.AlternativeCandidates;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.AI.SemanticCaching;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.AI;
-using Microsoft.SemanticKernel.ChatCompletion;
-using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
-using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Observability;
-using ECommerce.FlashSaleOrchestrator.Application.AlternativeCandidates;
-using ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations;
-using ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations.SemanticCaching;
-using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
+using ECommerce.FlashSaleOrchestrator.Application
+    .Abstractions.AlternativeCandidates;
+using ECommerce.FlashSaleOrchestrator.Application
+    .Abstractions.Messaging;
+using ECommerce.FlashSaleOrchestrator.Application
+    .Abstractions.Observability;
+using ECommerce.FlashSaleOrchestrator.Application
+    .Abstractions.Persistence;
+using ECommerce.FlashSaleOrchestrator.Application
+    .AlternativeCandidates;
+using ECommerce.FlashSaleOrchestrator.Application
+    .AlternativeRecommendations;
+using ECommerce.FlashSaleOrchestrator.Application
+    .AlternativeRecommendations.SemanticCaching;
+using ECommerce.FlashSaleOrchestrator.Application
+    .IntegrationEvents.Inventory;
 using ECommerce.FlashSaleOrchestrator.Domain.Inventory;
 using ECommerce.FlashSaleOrchestrator.Domain.Inventory.Events;
 using ECommerce.FlashSaleOrchestrator.Domain.Products;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.AlternativeCandidates;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.Kafka;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.Outbox;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.Messaging.Kafka;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.Observability;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Inbox;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Outbox;
-using ECommerce.FlashSaleOrchestrator.Worker.BackgroundServices;
-using ECommerce.FlashSaleOrchestrator.Worker.IntegrationEvents.Inventory;
-using ECommerce.FlashSaleOrchestrator.Worker.Messaging.DeadLetter;
-using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
-using ECommerce.FlashSaleOrchestrator.Worker.Resilience;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .AI.SemanticCaching;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .AlternativeCandidates;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .IntegrationTests.AI;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .IntegrationTests.Kafka;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .IntegrationTests.Outbox;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .Messaging.Kafka;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .Observability;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .Persistence;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .Persistence.Inbox;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .Persistence.Outbox;
+using ECommerce.FlashSaleOrchestrator.Worker
+    .BackgroundServices;
+using ECommerce.FlashSaleOrchestrator.Worker
+    .IntegrationEvents.Inventory;
+using ECommerce.FlashSaleOrchestrator.Worker
+    .Messaging.DeadLetter;
+using ECommerce.FlashSaleOrchestrator.Worker
+    .Messaging.Kafka;
+using ECommerce.FlashSaleOrchestrator.Worker
+    .Resilience;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.SemanticKernel.ChatCompletion;
 
-namespace ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.EndToEnd;
+namespace ECommerce.FlashSaleOrchestrator.Infrastructure
+    .IntegrationTests.EndToEnd;
 
 public sealed class StockDepletedPipelineEndToEndTests
 {
     [Fact]
-    public async Task Pipeline_ShouldPublishConsumeAndProcessStockDepletedEvent()
+    public async Task
+        Pipeline_ShouldPublishConsumeAndProcessStockDepletedEvent()
     {
         await using var database =
             await OutboxTestDatabase.CreateAsync();
@@ -222,7 +248,8 @@ public sealed class StockDepletedPipelineEndToEndTests
     }
 
     [Fact]
-    public async Task Pipeline_ShouldProcessHandlerOnlyOnce_WhenEventIsDeliveredTwice()
+    public async Task
+        Pipeline_ShouldProcessHandlerOnlyOnce_WhenEventIsDeliveredTwice()
     {
         await using var database =
             await OutboxTestDatabase.CreateAsync();
@@ -294,8 +321,9 @@ public sealed class StockDepletedPipelineEndToEndTests
             try
             {
                 firstProcessing =
-                    await processingResultProbe.WaitForFirstAsync(
-                        TimeSpan.FromSeconds(15));
+                    await processingResultProbe
+                        .WaitForFirstAsync(
+                            TimeSpan.FromSeconds(15));
             }
             catch (TimeoutException)
                 when (deadLetterPublisher.LastMessage is not null)
@@ -345,8 +373,9 @@ public sealed class StockDepletedPipelineEndToEndTests
             try
             {
                 secondProcessing =
-                    await processingResultProbe.WaitForSecondAsync(
-                        TimeSpan.FromSeconds(15));
+                    await processingResultProbe
+                        .WaitForSecondAsync(
+                            TimeSpan.FromSeconds(15));
             }
             catch (TimeoutException)
                 when (deadLetterPublisher.LastMessage is not null)
@@ -417,7 +446,8 @@ public sealed class StockDepletedPipelineEndToEndTests
     }
 
     [Fact]
-    public async Task Pipeline_ShouldRetrieveEligibleCandidates_WhenStockDepletedEventIsProcessed()
+    public async Task
+        Pipeline_ShouldRetrieveEligibleCandidates_WhenStockDepletedEventIsProcessed()
     {
         await using var database =
             await OutboxTestDatabase.CreateAsync();
@@ -623,7 +653,8 @@ public sealed class StockDepletedPipelineEndToEndTests
     }
 
     [Fact]
-    public async Task Pipeline_ShouldUseDeterministicFallbackWithoutDeadLetter_WhenLlmResponseRemainsInvalid()
+    public async Task
+        Pipeline_ShouldUseDeterministicFallbackWithoutDeadLetter_WhenLlmResponseRemainsInvalid()
     {
         await using var database =
             await OutboxTestDatabase.CreateAsync();
@@ -764,7 +795,8 @@ public sealed class StockDepletedPipelineEndToEndTests
     }
 
     [Fact]
-    public async Task Pipeline_ShouldRetryAndPublishToDeadLetter_WhenHandlerKeepsFailing()
+    public async Task
+        Pipeline_ShouldRetryAndPublishToDeadLetter_WhenHandlerKeepsFailing()
     {
         await using var database =
             await OutboxTestDatabase.CreateAsync();
@@ -1340,9 +1372,10 @@ public sealed class StockDepletedPipelineEndToEndTests
                 processingResultProbe;
         }
 
-        public async Task<IntegrationEventProcessingResult> ProcessAsync(
-            StockDepletedIntegrationEvent integrationEvent,
-            CancellationToken cancellationToken = default)
+        public async Task<IntegrationEventProcessingResult>
+            ProcessAsync(
+                StockDepletedIntegrationEvent integrationEvent,
+                CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(
                 integrationEvent);
@@ -1613,10 +1646,11 @@ public sealed class StockDepletedPipelineEndToEndTests
         await context.SaveChangesAsync();
     }
 
-    private static ServiceProvider CreateRecommendationFallbackServiceProvider(
-        OutboxTestDatabase database,
-        KafkaTestTopic topic,
-        FakeChatCompletionService fakeChatCompletionService)
+    private static ServiceProvider
+        CreateRecommendationFallbackServiceProvider(
+            OutboxTestDatabase database,
+            KafkaTestTopic topic,
+            FakeChatCompletionService fakeChatCompletionService)
     {
         var services =
             new ServiceCollection();
@@ -1701,6 +1735,24 @@ public sealed class StockDepletedPipelineEndToEndTests
             ResilientAlternativeRecommendationGenerator>();
 
         services.AddScoped<
+            IAlternativeRecommendationExecutor>(
+            serviceProvider =>
+                (IAlternativeRecommendationExecutor)
+                serviceProvider.GetRequiredService<
+                    IAlternativeRecommendationGenerator>());
+
+        services.AddScoped<
+            IAlternativeRecommendationPlanRepository,
+            NoOpAlternativeRecommendationPlanRepository>();
+
+        services.AddSingleton(
+            TimeProvider.System);
+
+        services.AddScoped<
+            IStockDepletedRecommendationOrchestrator,
+            StockDepletedRecommendationOrchestrator>();
+
+        services.AddScoped<
             IIntegrationEventHandler<
                 StockDepletedIntegrationEvent>,
             StockDepletedIntegrationEventHandler>();
@@ -1714,10 +1766,11 @@ public sealed class StockDepletedPipelineEndToEndTests
         return services.BuildServiceProvider();
     }
 
-    private static ServiceProvider CreateCandidateRetrievalServiceProvider(
-        OutboxTestDatabase database,
-        KafkaTestTopic topic,
-        CandidateProbe candidateProbe)
+    private static ServiceProvider
+        CreateCandidateRetrievalServiceProvider(
+            OutboxTestDatabase database,
+            KafkaTestTopic topic,
+            CandidateProbe candidateProbe)
     {
         var services =
             new ServiceCollection();
@@ -1767,8 +1820,19 @@ public sealed class StockDepletedPipelineEndToEndTests
             RecordingAlternativeCandidateProvider>();
 
         services.AddScoped<
-            IAlternativeRecommendationGenerator,
-            NoOpAlternativeRecommendationGenerator>();
+            IAlternativeRecommendationExecutor,
+            NoOpAlternativeRecommendationExecutor>();
+
+        services.AddScoped<
+            IAlternativeRecommendationPlanRepository,
+            NoOpAlternativeRecommendationPlanRepository>();
+
+        services.AddSingleton(
+            TimeProvider.System);
+
+        services.AddScoped<
+            IStockDepletedRecommendationOrchestrator,
+            StockDepletedRecommendationOrchestrator>();
 
         services.AddScoped<
             IIntegrationEventHandler<
@@ -1810,10 +1874,11 @@ public sealed class StockDepletedPipelineEndToEndTests
                 candidateProbe;
         }
 
-        public async Task<AlternativeCandidateSet?> GetCandidateSetAsync(
-            Guid depletedProductId,
-            int limit,
-            CancellationToken cancellationToken = default)
+        public async Task<AlternativeCandidateSet?>
+            GetCandidateSetAsync(
+                Guid depletedProductId,
+                int limit,
+                CancellationToken cancellationToken = default)
         {
             var candidateSet =
                 await _innerProvider.GetCandidateSetAsync(
@@ -1829,28 +1894,53 @@ public sealed class StockDepletedPipelineEndToEndTests
         }
     }
 
-    private sealed class NoOpAlternativeRecommendationGenerator
-        : IAlternativeRecommendationGenerator
+    private sealed class NoOpAlternativeRecommendationExecutor
+        : IAlternativeRecommendationExecutor
     {
-        public Task<AlternativeRecommendationResult> GenerateAsync(
-            AlternativeRecommendationRequest request,
-            CancellationToken cancellationToken = default)
+        public Task<
+            AlternativeRecommendationGenerationOutcome>
+            ExecuteAsync(
+                AlternativeRecommendationRequest request,
+                CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(
                 request);
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             return Task.FromResult(
-                new AlternativeRecommendationResult(
-                    []));
+                new AlternativeRecommendationGenerationOutcome(
+                    new AlternativeRecommendationResult(
+                        []),
+                    AlternativeRecommendationSource.Deterministic));
         }
     }
 
-    private sealed class E2eSemanticRecommendationEmbeddingGenerator
+    private sealed class
+        NoOpAlternativeRecommendationPlanRepository
+        : IAlternativeRecommendationPlanRepository
+    {
+        public Task AddAsync(
+            AlternativeRecommendationPlan plan,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(
+                plan);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class
+        E2eSemanticRecommendationEmbeddingGenerator
         : ISemanticRecommendationEmbeddingGenerator
     {
-        public Task<SemanticRecommendationEmbedding> GenerateAsync(
-            string text,
-            CancellationToken cancellationToken = default)
+        public Task<SemanticRecommendationEmbedding>
+            GenerateAsync(
+                string text,
+                CancellationToken cancellationToken = default)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(
                 text);
@@ -1868,12 +1958,14 @@ public sealed class StockDepletedPipelineEndToEndTests
         }
     }
 
-    private sealed class E2eCacheMissSemanticRecommendationCache
+    private sealed class
+        E2eCacheMissSemanticRecommendationCache
         : ISemanticRecommendationCache
     {
-        public Task<SemanticRecommendationCacheMatch?> FindAsync(
-            SemanticRecommendationCacheLookup lookup,
-            CancellationToken cancellationToken = default)
+        public Task<SemanticRecommendationCacheMatch?>
+            FindAsync(
+                SemanticRecommendationCacheLookup lookup,
+                CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(
                 lookup);
@@ -1938,8 +2030,9 @@ public sealed class StockDepletedPipelineEndToEndTests
                 candidates);
         }
 
-        public Task<IReadOnlyList<AlternativeCandidate>> WaitAsync(
-            TimeSpan timeout)
+        public Task<IReadOnlyList<AlternativeCandidate>>
+            WaitAsync(
+                TimeSpan timeout)
         {
             return _retrieved
                 .Task
