@@ -482,6 +482,100 @@ public sealed class
             cache.RemoveCount);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_ShouldReportCache_WhenCacheHitIsValid()
+    {
+        var request =
+            CreateRequest();
+
+        var cachedResult =
+            new AlternativeRecommendationResult(
+                [
+                    new AlternativeRecommendation(
+                    request.Candidates[0].ProductId,
+                    "Cached recommendation")
+                ]);
+
+        var primary =
+            new FakePrimaryGenerator(
+                CreatePrimaryResult(
+                    request));
+
+        var cache =
+            new FakeSemanticRecommendationCache
+            {
+                MatchToReturn =
+                    new SemanticRecommendationCacheMatch(
+                        "entry-source-cache",
+                        0.98,
+                        cachedResult)
+            };
+
+        var generator =
+            CreateGenerator(
+                primary,
+                cache);
+
+        var outcome =
+            await generator.ExecuteAsync(
+                request);
+
+        Assert.Same(
+            cachedResult,
+            outcome.Result);
+
+        Assert.Equal(
+            AlternativeRecommendationSource.Cache,
+            outcome.Source);
+
+        Assert.Equal(
+            0,
+            primary.CallCount);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldReportLlm_WhenCacheMisses()
+    {
+        var request =
+            CreateRequest();
+
+        var primaryResult =
+            CreatePrimaryResult(
+                request);
+
+        var primary =
+            new FakePrimaryGenerator(
+                primaryResult);
+
+        var cache =
+            new FakeSemanticRecommendationCache();
+
+        var generator =
+            CreateGenerator(
+                primary,
+                cache);
+
+        var outcome =
+            await generator.ExecuteAsync(
+                request);
+
+        Assert.Same(
+            primaryResult,
+            outcome.Result);
+
+        Assert.Equal(
+            AlternativeRecommendationSource.Llm,
+            outcome.Source);
+
+        Assert.Equal(
+            1,
+            primary.CallCount);
+
+        Assert.Equal(
+            1,
+            cache.StoreCount);
+    }
+
     private static
         CachedSemanticAlternativeRecommendationGenerator
         CreateGenerator(

@@ -213,6 +213,44 @@ public sealed class ResilientAlternativeRecommendationGeneratorTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_ShouldReportDeterministic_WhenNoCandidatesExist()
+    {
+        var fakeChatCompletionService =
+            new FakeChatCompletionService(
+                _ =>
+                    throw new InvalidOperationException(
+                        "LLM should not be called."));
+
+        var generator =
+            CreateGenerator(
+                fakeChatCompletionService);
+
+        var request =
+            new AlternativeRecommendationRequest(
+                "empty-candidate-source-correlation",
+                new DepletedProductContext(
+                    Guid.NewGuid(),
+                    "Depleted Product",
+                    "Electronics"),
+                []);
+
+        var outcome =
+            await generator.ExecuteAsync(
+                request);
+
+        Assert.Equal(
+            AlternativeRecommendationSource.Deterministic,
+            outcome.Source);
+
+        Assert.Empty(
+            outcome.Result.Recommendations);
+
+        Assert.Equal(
+            0,
+            fakeChatCompletionService.CallCount);
+    }
+
+    [Fact]
     public async Task GenerateAsync_ShouldPropagateCancellation_WithoutFallback()
     {
         var candidateId =
@@ -248,11 +286,145 @@ public sealed class ResilientAlternativeRecommendationGeneratorTests
             fakeChatCompletionService.CallCount);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_ShouldReportLlm_WhenPrimarySucceeds()
+    {
+        var candidateId =
+            Guid.NewGuid();
+
+        var validResponse =
+            $$"""
+          {
+            "recommendations": [
+              {
+                "productId": "{{candidateId}}",
+                "reason": "Suitable semantic alternative."
+              }
+            ]
+          }
+          """;
+
+        var fakeChatCompletionService =
+            new FakeChatCompletionService(
+                validResponse);
+
+        var generator =
+            CreateGenerator(
+                fakeChatCompletionService);
+
+        var outcome =
+            await generator.ExecuteAsync(
+                CreateRequest(
+                    candidateId));
+
+        Assert.Equal(
+            AlternativeRecommendationSource.Llm,
+            outcome.Source);
+
+        var recommendation =
+            Assert.Single(
+                outcome.Result.Recommendations);
+
+        Assert.Equal(
+            candidateId,
+            recommendation.ProductId);
+    }
+
+    [Fact]
+public async Task ExecuteAsync_ShouldReportCache_WhenSemanticCacheHitIsValid()
+{
+    var candidateId =
+        Guid.NewGuid();
+
+    var request =
+        CreateRequest(
+            candidateId);
+
+    var cachedResult =
+        new AlternativeRecommendationResult(
+            [
+                new AlternativeRecommendation(
+                    candidateId,
+                    "Cached semantic alternative.")
+            ]);
+
+    var cache =
+        new CacheHitSemanticRecommendationCache(
+            cachedResult);
+
+    var fakeChatCompletionService =
+        new FakeChatCompletionService(
+            _ =>
+                throw new InvalidOperationException(
+                    "LLM should not be called on a valid cache hit."));
+
+    var generator =
+        CreateGenerator(
+            fakeChatCompletionService,
+            cache);
+
+    var outcome =
+        await generator.ExecuteAsync(
+            request);
+
+    Assert.Equal(
+        AlternativeRecommendationSource.Cache,
+        outcome.Source);
+
+    Assert.Same(
+        cachedResult,
+        outcome.Result);
+
+    Assert.Equal(
+        1,
+        cache.FindCount);
+
+    Assert.Equal(
+        0,
+        fakeChatCompletionService.CallCount);
+}
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldReportDeterministic_WhenAllLlmAttemptsFail()
+    {
+        var candidateId =
+            Guid.NewGuid();
+
+        var fakeChatCompletionService =
+            new FakeChatCompletionService(
+                "{ invalid-json");
+
+        var generator =
+            CreateGenerator(
+                fakeChatCompletionService);
+
+        var outcome =
+            await generator.ExecuteAsync(
+                CreateRequest(
+                    candidateId));
+
+        Assert.Equal(
+            AlternativeRecommendationSource.Deterministic,
+            outcome.Source);
+
+        Assert.Equal(
+            2,
+            fakeChatCompletionService.CallCount);
+
+        var recommendation =
+            Assert.Single(
+                outcome.Result.Recommendations);
+
+        Assert.Equal(
+            candidateId,
+            recommendation.ProductId);
+    }
+
     private static
     ResilientAlternativeRecommendationGenerator
     CreateGenerator(
         FakeChatCompletionService fakeChatCompletionService,
-        CacheMissSemanticRecommendationCache? cache = null)
+        ISemanticRecommendationCache? cache = null)
     {
         var uncachedGenerator =
             new SemanticKernelAlternativeRecommendationGenerator(
@@ -303,6 +475,69 @@ public sealed class ResilientAlternativeRecommendationGeneratorTests
                     0.2f,
                     0.3f
                     }));
+        }
+    }
+
+    private sealed class CacheHitSemanticRecommendationCache
+    : ISemanticRecommendationCache
+    {
+        private readonly AlternativeRecommendationResult
+            _result;
+
+        public CacheHitSemanticRecommendationCache(
+            AlternativeRecommendationResult result)
+        {
+            ArgumentNullException.ThrowIfNull(
+                result);
+
+            _result =
+                result;
+        }
+
+        public int FindCount { get; private set; }
+
+        public Task<SemanticRecommendationCacheMatch?>
+            FindAsync(
+                SemanticRecommendationCacheLookup lookup,
+                CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(
+                lookup);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            FindCount++;
+
+            return Task.FromResult<
+                SemanticRecommendationCacheMatch?>(
+                new SemanticRecommendationCacheMatch(
+                    "resilient-cache-hit",
+                    0.99,
+                    _result));
+        }
+
+        public Task StoreAsync(
+            SemanticRecommendationCacheEntry entry,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(
+                entry);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.CompletedTask;
+        }
+
+        public Task RemoveAsync(
+            string entryId,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(
+                entryId);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.CompletedTask;
         }
     }
 

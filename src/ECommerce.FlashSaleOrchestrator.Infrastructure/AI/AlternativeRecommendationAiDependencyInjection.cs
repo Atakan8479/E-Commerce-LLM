@@ -65,6 +65,13 @@ public static class
             IAlternativeRecommendationGenerator,
             ResilientAlternativeRecommendationGenerator>();
 
+        services.AddScoped<
+            IAlternativeRecommendationExecutor>(
+            serviceProvider =>
+                (IAlternativeRecommendationExecutor)
+                serviceProvider.GetRequiredService<
+                    IAlternativeRecommendationGenerator>());
+
         return services;
     }
 }
