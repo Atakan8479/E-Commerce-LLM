@@ -1,50 +1,37 @@
-﻿using ECommerce.FlashSaleOrchestrator.Application.Abstractions.AlternativeCandidates;
-using ECommerce.FlashSaleOrchestrator.Application.AlternativeCandidates;
-using ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations;
-using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
-using ECommerce.FlashSaleOrchestrator.Worker.IntegrationEvents.Inventory;
+﻿using ECommerce.FlashSaleOrchestrator.Application
+    .AlternativeRecommendations;
+using ECommerce.FlashSaleOrchestrator.Application
+    .IntegrationEvents.Inventory;
+using ECommerce.FlashSaleOrchestrator.Worker
+    .IntegrationEvents.Inventory;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace ECommerce.FlashSaleOrchestrator.Worker.Tests.IntegrationEvents.Inventory;
+namespace ECommerce.FlashSaleOrchestrator.Worker.Tests
+    .IntegrationEvents.Inventory;
 
 public sealed class StockDepletedIntegrationEventHandlerTests
 {
     [Fact]
-    public async Task HandleAsync_ShouldRequestCandidates_WithEventProductIdAndConfiguredLimit()
+    public async Task
+        HandleAsync_ShouldForwardEventDataAndCancellationTokenToOrchestrator()
     {
-        var productId =
-            Guid.NewGuid();
-
-        var candidateProductId =
-            Guid.NewGuid();
+        var integrationEvent =
+            CreateIntegrationEvent();
 
         using var cancellationTokenSource =
             new CancellationTokenSource();
 
-        var provider =
-            new FakeAlternativeCandidateProvider
+        var orchestrator =
+            new FakeStockDepletedRecommendationOrchestrator
             {
                 Result =
-                [
-                    new AlternativeCandidate(
-                        candidateProductId,
-                        "Alternative Mouse",
-                        "mouse",
-                        12)
-                ]
+                    CreatePlan(
+                        integrationEvent)
             };
-
-        var generator =
-            new FakeAlternativeRecommendationGenerator();
 
         var handler =
             CreateHandler(
-                provider,
-                generator);
-
-        var integrationEvent =
-            CreateIntegrationEvent(
-                productId);
+                orchestrator);
 
         await handler.HandleAsync(
             integrationEvent,
@@ -52,333 +39,176 @@ public sealed class StockDepletedIntegrationEventHandlerTests
 
         Assert.Equal(
             1,
-            provider.CandidateSetCallCount);
+            orchestrator.CallCount);
 
         Assert.Equal(
-            productId,
-            provider.ReceivedProductId);
+            integrationEvent.EventId,
+            orchestrator.ReceivedEventId);
 
         Assert.Equal(
-            10,
-            provider.ReceivedLimit);
-
-        Assert.Equal(
-            cancellationTokenSource.Token,
-            provider.ReceivedCancellationToken);
-
-        Assert.Equal(
-            1,
-            generator.CallCount);
-
-        Assert.NotNull(
-            generator.ReceivedRequest);
+            integrationEvent.ProductId,
+            orchestrator.ReceivedProductId);
 
         Assert.Equal(
             integrationEvent.CorrelationId,
-            generator.ReceivedRequest.CorrelationId);
-
-        Assert.Equal(
-            productId,
-            generator.ReceivedRequest.DepletedProduct.ProductId);
-
-        Assert.Equal(
-            "Depleted Mouse",
-            generator.ReceivedRequest.DepletedProduct.Name);
-
-        Assert.Equal(
-            "mouse",
-            generator.ReceivedRequest.DepletedProduct.Category);
-
-        var receivedCandidate =
-            Assert.Single(
-                generator.ReceivedRequest.Candidates);
-
-        Assert.Equal(
-            candidateProductId,
-            receivedCandidate.ProductId);
+            orchestrator.ReceivedCorrelationId);
 
         Assert.Equal(
             cancellationTokenSource.Token,
-            generator.ReceivedCancellationToken);
+            orchestrator.ReceivedCancellationToken);
     }
 
     [Fact]
-    public async Task HandleAsync_ShouldCompleteSuccessfully_WhenNoCandidatesAreFound()
+    public async Task
+        HandleAsync_ShouldCompleteSuccessfully_WhenOrchestratorReturnsNull()
     {
-        var provider =
-            new FakeAlternativeCandidateProvider
-            {
-                Result = []
-            };
-
-        var generator =
-            new FakeAlternativeRecommendationGenerator();
-
-        var handler =
-            CreateHandler(
-                provider,
-                generator);
-
-        var integrationEvent =
-            CreateIntegrationEvent(
-                Guid.NewGuid());
-
-        var exception =
-            await Record.ExceptionAsync(
-                () =>
-                    handler.HandleAsync(
-                        integrationEvent));
-
-        Assert.Null(
-            exception);
-
-        Assert.Equal(
-            1,
-            provider.CandidateSetCallCount);
-
-        Assert.Equal(
-            0,
-            generator.CallCount);
-    }
-
-    [Fact]
-    public async Task HandleAsync_ShouldCompleteSuccessfully_WhenDepletedProductDoesNotExist()
-    {
-        var provider =
-            new FakeAlternativeCandidateProvider
-            {
-                ReturnNullCandidateSet =
-                    true
-            };
-
-        var generator =
-            new FakeAlternativeRecommendationGenerator();
-
-        var handler =
-            CreateHandler(
-                provider,
-                generator);
-
-        var integrationEvent =
-            CreateIntegrationEvent(
-                Guid.NewGuid());
-
-        var exception =
-            await Record.ExceptionAsync(
-                () =>
-                    handler.HandleAsync(
-                        integrationEvent));
-
-        Assert.Null(
-            exception);
-
-        Assert.Equal(
-            1,
-            provider.CandidateSetCallCount);
-
-        Assert.Equal(
-            0,
-            generator.CallCount);
-    }
-
-    [Fact]
-    public async Task HandleAsync_ShouldPropagateException_WhenCandidateRetrievalFails()
-    {
-        var provider =
-            new FakeAlternativeCandidateProvider
-            {
-                Exception =
-                    new InvalidOperationException(
-                        "Candidate retrieval failed.")
-            };
-
-        var generator =
-            new FakeAlternativeRecommendationGenerator();
-
-        var handler =
-            CreateHandler(
-                provider,
-                generator);
-
-        var integrationEvent =
-            CreateIntegrationEvent(
-                Guid.NewGuid());
-
-        var exception =
-            await Assert.ThrowsAsync<
-                InvalidOperationException>(
-                () =>
-                    handler.HandleAsync(
-                        integrationEvent));
-
-        Assert.Equal(
-            "Candidate retrieval failed.",
-            exception.Message);
-
-        Assert.Equal(
-            1,
-            provider.CandidateSetCallCount);
-
-        Assert.Equal(
-            0,
-            generator.CallCount);
-    }
-
-    [Fact]
-    public async Task HandleAsync_ShouldPropagateException_WhenRecommendationGenerationFails()
-    {
-        var provider =
-            new FakeAlternativeCandidateProvider
+        var orchestrator =
+            new FakeStockDepletedRecommendationOrchestrator
             {
                 Result =
-                [
-                    new AlternativeCandidate(
-                        Guid.NewGuid(),
-                        "Alternative Mouse",
-                        "mouse",
-                        12)
-                ]
-            };
-
-        var generator =
-            new FakeAlternativeRecommendationGenerator
-            {
-                Exception =
-                    new InvalidOperationException(
-                        "Recommendation generation failed.")
+                    null
             };
 
         var handler =
             CreateHandler(
-                provider,
-                generator);
+                orchestrator);
 
-        var integrationEvent =
-            CreateIntegrationEvent(
-                Guid.NewGuid());
+        var exception =
+            await Record.ExceptionAsync(
+                () =>
+                    handler.HandleAsync(
+                        CreateIntegrationEvent()));
+
+        Assert.Null(
+            exception);
+
+        Assert.Equal(
+            1,
+            orchestrator.CallCount);
+    }
+
+    [Fact]
+    public async Task
+        HandleAsync_ShouldPropagateException_WhenOrchestrationFails()
+    {
+        var orchestrator =
+            new FakeStockDepletedRecommendationOrchestrator
+            {
+                Exception =
+                    new InvalidOperationException(
+                        "Recommendation orchestration failed.")
+            };
+
+        var handler =
+            CreateHandler(
+                orchestrator);
 
         var exception =
             await Assert.ThrowsAsync<
                 InvalidOperationException>(
                 () =>
                     handler.HandleAsync(
-                        integrationEvent));
+                        CreateIntegrationEvent()));
 
         Assert.Equal(
-            "Recommendation generation failed.",
+            "Recommendation orchestration failed.",
             exception.Message);
 
         Assert.Equal(
             1,
-            provider.CandidateSetCallCount);
-
-        Assert.Equal(
-            1,
-            generator.CallCount);
+            orchestrator.CallCount);
     }
 
-    private static StockDepletedIntegrationEventHandler CreateHandler(
-        IAlternativeCandidateProvider provider,
-        IAlternativeRecommendationGenerator generator)
+    private static StockDepletedIntegrationEventHandler
+        CreateHandler(
+            IStockDepletedRecommendationOrchestrator orchestrator)
     {
         return new StockDepletedIntegrationEventHandler(
-            provider,
-            generator,
+            orchestrator,
             NullLogger<
-                StockDepletedIntegrationEventHandler>.Instance);
+                StockDepletedIntegrationEventHandler>
+                .Instance);
     }
 
-    private static StockDepletedIntegrationEvent CreateIntegrationEvent(
-        Guid productId)
+    private static StockDepletedIntegrationEvent
+        CreateIntegrationEvent()
     {
         return new StockDepletedIntegrationEvent(
             Guid.NewGuid(),
             DateTime.UtcNow,
-            productId,
+            Guid.NewGuid(),
             $"correlation-{Guid.NewGuid():N}");
     }
 
-    private sealed class FakeAlternativeCandidateProvider
-        : IAlternativeCandidateProvider
+    private static AlternativeRecommendationPlan
+        CreatePlan(
+            StockDepletedIntegrationEvent integrationEvent)
     {
-        public IReadOnlyList<AlternativeCandidate> Result { get; init; } =
-            [];
+        return new AlternativeRecommendationPlan(
+            integrationEvent.EventId,
+            integrationEvent.ProductId,
+            new AlternativeRecommendationResult(
+                []),
+            AlternativeRecommendationSource.Deterministic,
+            integrationEvent.CorrelationId,
+            DateTime.UtcNow);
+    }
 
-        public Exception? Exception { get; init; }
+    private sealed class
+        FakeStockDepletedRecommendationOrchestrator
+        : IStockDepletedRecommendationOrchestrator
+    {
+        public AlternativeRecommendationPlan?
+            Result
+        {
+            get;
+            init;
+        }
 
-        public bool ReturnNullCandidateSet { get; init; }
+        public Exception?
+            Exception
+        {
+            get;
+            init;
+        }
 
-        public int CandidateSetCallCount { get; private set; }
+        public int CallCount { get; private set; }
+
+        public Guid ReceivedEventId { get; private set; }
 
         public Guid ReceivedProductId { get; private set; }
 
-        public int ReceivedLimit { get; private set; }
-
-        public CancellationToken ReceivedCancellationToken { get; private set; }
-
-        public Task<AlternativeCandidateSet?> GetCandidateSetAsync(
-            Guid depletedProductId,
-            int limit,
-            CancellationToken cancellationToken = default)
+        public string?
+            ReceivedCorrelationId
         {
-            CandidateSetCallCount++;
+            get;
+            private set;
+        }
+
+        public CancellationToken
+            ReceivedCancellationToken
+        {
+            get;
+            private set;
+        }
+
+        public Task<AlternativeRecommendationPlan?>
+            OrchestrateAsync(
+                Guid eventId,
+                Guid depletedProductId,
+                string correlationId,
+                CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+
+            ReceivedEventId =
+                eventId;
 
             ReceivedProductId =
                 depletedProductId;
 
-            ReceivedLimit =
-                limit;
-
-            ReceivedCancellationToken =
-                cancellationToken;
-
-            if (Exception is not null)
-            {
-                return Task.FromException<AlternativeCandidateSet?>(
-                    Exception);
-            }
-
-            if (ReturnNullCandidateSet)
-            {
-                return Task.FromResult<AlternativeCandidateSet?>(
-                    null);
-            }
-
-            AlternativeCandidateSet result =
-                new(
-                    new DepletedProductContext(
-                        depletedProductId,
-                        "Depleted Mouse",
-                        "mouse"),
-                    Result);
-
-            return Task.FromResult<AlternativeCandidateSet?>(
-                result);
-        }
-    }
-
-    private sealed class FakeAlternativeRecommendationGenerator
-        : IAlternativeRecommendationGenerator
-    {
-        public AlternativeRecommendationResult Result { get; init; } =
-            new([]);
-
-        public Exception? Exception { get; init; }
-
-        public int CallCount { get; private set; }
-
-        public AlternativeRecommendationRequest? ReceivedRequest { get; private set; }
-
-        public CancellationToken ReceivedCancellationToken { get; private set; }
-
-        public Task<AlternativeRecommendationResult> GenerateAsync(
-            AlternativeRecommendationRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            CallCount++;
-
-            ReceivedRequest =
-                request;
+            ReceivedCorrelationId =
+                correlationId;
 
             ReceivedCancellationToken =
                 cancellationToken;
@@ -386,7 +216,7 @@ public sealed class StockDepletedIntegrationEventHandlerTests
             if (Exception is not null)
             {
                 return Task.FromException<
-                    AlternativeRecommendationResult>(
+                    AlternativeRecommendationPlan?>(
                     Exception);
             }
 

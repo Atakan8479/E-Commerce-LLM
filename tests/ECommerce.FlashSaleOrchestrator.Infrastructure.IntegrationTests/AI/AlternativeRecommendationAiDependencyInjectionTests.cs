@@ -123,6 +123,15 @@ public sealed class
                 && descriptor.Lifetime ==
                     ServiceLifetime.Scoped);
 
+        Assert.Contains(
+            services,
+            descriptor =>
+                descriptor.ServiceType ==
+                    typeof(
+                        IAlternativeRecommendationExecutor)
+                && descriptor.Lifetime ==
+                    ServiceLifetime.Scoped);
+
         using var serviceProvider =
             services.BuildServiceProvider(
                 new ServiceProviderOptions
@@ -142,6 +151,11 @@ public sealed class
                 .GetRequiredService<
                     IAlternativeRecommendationGenerator>();
 
+        var executor =
+            scope.ServiceProvider
+                .GetRequiredService<
+                    IAlternativeRecommendationExecutor>();
+
         var uncachedGenerator =
             scope.ServiceProvider
                 .GetRequiredService<
@@ -155,6 +169,10 @@ public sealed class
         Assert.IsType<
             ResilientAlternativeRecommendationGenerator>(
             generator);
+
+        Assert.Same(
+            generator,
+            executor);
 
         Assert.IsType<
             SemanticKernelAlternativeRecommendationGenerator>(

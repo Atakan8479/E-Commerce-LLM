@@ -8,6 +8,8 @@ using ECommerce.FlashSaleOrchestrator.Application.Abstractions.AlternativeCandid
 using ECommerce.FlashSaleOrchestrator.Infrastructure.AlternativeCandidates;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Persistence;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Repositories;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure;
 
@@ -46,6 +48,10 @@ public static class DependencyInjection
         services.AddScoped<
             IAlternativeCandidateProvider,
             SqlAlternativeCandidateProvider>();
+
+        services.AddScoped<
+            IAlternativeRecommendationPlanRepository,
+            AlternativeRecommendationPlanRepository>();
 
         return services;
     }

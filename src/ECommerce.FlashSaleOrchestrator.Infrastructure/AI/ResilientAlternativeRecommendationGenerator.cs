@@ -8,7 +8,8 @@ namespace ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
 
 internal sealed class
     ResilientAlternativeRecommendationGenerator
-    : IAlternativeRecommendationGenerator
+    : IAlternativeRecommendationGenerator,
+      IAlternativeRecommendationExecutor
 {
     private const int MaxAttempts =
         2;
@@ -25,9 +26,8 @@ internal sealed class
         DeterministicAlternativeRecommendationGenerator
         _fallbackGenerator;
 
-    private readonly
-        ILogger<
-            ResilientAlternativeRecommendationGenerator>
+    private readonly ILogger<
+        ResilientAlternativeRecommendationGenerator>
         _logger;
 
     public ResilientAlternativeRecommendationGenerator(
@@ -63,12 +63,25 @@ internal sealed class
             AlternativeRecommendationRequest request,
             CancellationToken cancellationToken = default)
     {
+        var outcome =
+            await ExecuteAsync(
+                request,
+                cancellationToken);
+
+        return outcome.Result;
+    }
+
+    public async Task<AlternativeRecommendationGenerationOutcome>
+        ExecuteAsync(
+            AlternativeRecommendationRequest request,
+            CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(
             request);
 
         if (request.Candidates.Count == 0)
         {
-            return await _fallbackGenerator.GenerateAsync(
+            return await GenerateFallbackOutcomeAsync(
                 request,
                 cancellationToken);
         }
@@ -79,7 +92,7 @@ internal sealed class
         {
             try
             {
-                return await _primaryGenerator.GenerateAsync(
+                return await _primaryGenerator.ExecuteAsync(
                     request,
                     cancellationToken);
             }
@@ -125,8 +138,23 @@ internal sealed class
             }
         }
 
-        return await _fallbackGenerator.GenerateAsync(
+        return await GenerateFallbackOutcomeAsync(
             request,
             cancellationToken);
+    }
+
+    private async Task<AlternativeRecommendationGenerationOutcome>
+        GenerateFallbackOutcomeAsync(
+            AlternativeRecommendationRequest request,
+            CancellationToken cancellationToken)
+    {
+        var result =
+            await _fallbackGenerator.GenerateAsync(
+                request,
+                cancellationToken);
+
+        return new AlternativeRecommendationGenerationOutcome(
+            result,
+            AlternativeRecommendationSource.Deterministic);
     }
 }

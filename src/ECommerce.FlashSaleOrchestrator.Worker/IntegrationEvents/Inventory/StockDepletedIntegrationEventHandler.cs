@@ -1,43 +1,35 @@
-using ECommerce.FlashSaleOrchestrator.Application.Abstractions.AlternativeCandidates;
-using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
-using ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations;
-using ECommerce.FlashSaleOrchestrator.Application.IntegrationEvents.Inventory;
+using ECommerce.FlashSaleOrchestrator.Application
+    .Abstractions.Messaging;
+using ECommerce.FlashSaleOrchestrator.Application
+    .AlternativeRecommendations;
+using ECommerce.FlashSaleOrchestrator.Application
+    .IntegrationEvents.Inventory;
 
-namespace ECommerce.FlashSaleOrchestrator.Worker.IntegrationEvents.Inventory;
+namespace ECommerce.FlashSaleOrchestrator.Worker
+    .IntegrationEvents.Inventory;
 
 public sealed class StockDepletedIntegrationEventHandler
     : IIntegrationEventHandler<StockDepletedIntegrationEvent>
 {
-    private const int AlternativeCandidateLimit = 10;
+    private readonly IStockDepletedRecommendationOrchestrator
+        _orchestrator;
 
-    private readonly IAlternativeCandidateProvider
-        _alternativeCandidateProvider;
-
-    private readonly IAlternativeRecommendationGenerator
-        _alternativeRecommendationGenerator;
-
-    private readonly ILogger<StockDepletedIntegrationEventHandler>
+    private readonly ILogger<
+        StockDepletedIntegrationEventHandler>
         _logger;
 
     public StockDepletedIntegrationEventHandler(
-        IAlternativeCandidateProvider alternativeCandidateProvider,
-        IAlternativeRecommendationGenerator alternativeRecommendationGenerator,
+        IStockDepletedRecommendationOrchestrator orchestrator,
         ILogger<StockDepletedIntegrationEventHandler> logger)
     {
         ArgumentNullException.ThrowIfNull(
-            alternativeCandidateProvider);
-
-        ArgumentNullException.ThrowIfNull(
-            alternativeRecommendationGenerator);
+            orchestrator);
 
         ArgumentNullException.ThrowIfNull(
             logger);
 
-        _alternativeCandidateProvider =
-            alternativeCandidateProvider;
-
-        _alternativeRecommendationGenerator =
-            alternativeRecommendationGenerator;
+        _orchestrator =
+            orchestrator;
 
         _logger =
             logger;
@@ -53,36 +45,25 @@ public sealed class StockDepletedIntegrationEventHandler
         _logger.LogInformation(
             "Stock depleted integration event received. " +
             "EventId: {EventId}, ProductId: {ProductId}, " +
-            "CorrelationId: {CorrelationId}, OccurredAtUtc: {OccurredAtUtc}",
+            "CorrelationId: {CorrelationId}, " +
+            "OccurredAtUtc: {OccurredAtUtc}",
             integrationEvent.EventId,
             integrationEvent.ProductId,
             integrationEvent.CorrelationId,
             integrationEvent.OccurredAtUtc);
 
-        var candidateSet =
-            await _alternativeCandidateProvider
-                .GetCandidateSetAsync(
-                    integrationEvent.ProductId,
-                    AlternativeCandidateLimit,
-                    cancellationToken);
+        var plan =
+            await _orchestrator.OrchestrateAsync(
+                integrationEvent.EventId,
+                integrationEvent.ProductId,
+                integrationEvent.CorrelationId,
+                cancellationToken);
 
-        if (candidateSet is null)
+        if (plan is null)
         {
             _logger.LogWarning(
-                "Depleted product was not found while retrieving alternatives. " +
-                "EventId: {EventId}, ProductId: {ProductId}, " +
-                "CorrelationId: {CorrelationId}",
-                integrationEvent.EventId,
-                integrationEvent.ProductId,
-                integrationEvent.CorrelationId);
-
-            return;
-        }
-
-        if (candidateSet.Candidates.Count == 0)
-        {
-            _logger.LogInformation(
-                "No eligible alternative candidates found. " +
+                "Recommendation plan was not created because " +
+                "the depleted product could not be resolved. " +
                 "EventId: {EventId}, ProductId: {ProductId}, " +
                 "CorrelationId: {CorrelationId}",
                 integrationEvent.EventId,
@@ -93,33 +74,15 @@ public sealed class StockDepletedIntegrationEventHandler
         }
 
         _logger.LogInformation(
-            "Alternative candidates retrieved. " +
+            "Recommendation plan created. " +
             "EventId: {EventId}, ProductId: {ProductId}, " +
-            "CorrelationId: {CorrelationId}, CandidateCount: {CandidateCount}",
-            integrationEvent.EventId,
-            integrationEvent.ProductId,
-            integrationEvent.CorrelationId,
-            candidateSet.Candidates.Count);
-
-        var request =
-            new AlternativeRecommendationRequest(
-                integrationEvent.CorrelationId,
-                candidateSet.DepletedProduct,
-                candidateSet.Candidates);
-
-        var result =
-            await _alternativeRecommendationGenerator
-                .GenerateAsync(
-                    request,
-                    cancellationToken);
-
-        _logger.LogInformation(
-            "Alternative recommendation generation completed. " +
-            "EventId: {EventId}, ProductId: {ProductId}, " +
-            "CorrelationId: {CorrelationId}, RecommendationCount: {RecommendationCount}",
-            integrationEvent.EventId,
-            integrationEvent.ProductId,
-            integrationEvent.CorrelationId,
-            result.Recommendations.Count);
+            "CorrelationId: {CorrelationId}, " +
+            "Source: {Source}, " +
+            "RecommendationCount: {RecommendationCount}",
+            plan.EventId,
+            plan.OriginalProductId,
+            plan.CorrelationId,
+            plan.Source,
+            plan.Result.Recommendations.Count);
     }
 }

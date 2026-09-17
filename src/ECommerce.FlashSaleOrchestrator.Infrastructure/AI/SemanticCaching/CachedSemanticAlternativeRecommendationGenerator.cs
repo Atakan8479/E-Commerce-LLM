@@ -2,8 +2,8 @@
     .AlternativeRecommendations;
 using ECommerce.FlashSaleOrchestrator.Application
     .AlternativeRecommendations.SemanticCaching;
-using Microsoft.Extensions.Logging;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
+using Microsoft.Extensions.Logging;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure
     .AI.SemanticCaching;
@@ -83,6 +83,19 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
             AlternativeRecommendationRequest request,
             CancellationToken cancellationToken = default)
     {
+        var outcome =
+            await ExecuteAsync(
+                request,
+                cancellationToken);
+
+        return outcome.Result;
+    }
+
+    public async Task<AlternativeRecommendationGenerationOutcome>
+        ExecuteAsync(
+            AlternativeRecommendationRequest request,
+            CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(
             request);
 
@@ -128,7 +141,7 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
                 "CorrelationId: {CorrelationId}",
                 request.CorrelationId);
 
-            return await GeneratePrimaryAsync(
+            return await GeneratePrimaryOutcomeAsync(
                 request,
                 cancellationToken);
         }
@@ -151,7 +164,9 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
                     match.EntryId,
                     match.SimilarityScore);
 
-                return match.Result;
+                return new AlternativeRecommendationGenerationOutcome(
+                    match.Result,
+                    AlternativeRecommendationSource.Cache);
             }
             catch (
                 AlternativeRecommendationValidationException
@@ -186,7 +201,7 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
                         request.CorrelationId,
                         match.EntryId);
 
-                    return await GeneratePrimaryAsync(
+                    return await GeneratePrimaryOutcomeAsync(
                         request,
                         cancellationToken);
                 }
@@ -200,8 +215,8 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
                 request.CorrelationId);
         }
 
-        var result =
-            await GeneratePrimaryAsync(
+        var outcome =
+            await GeneratePrimaryOutcomeAsync(
                 request,
                 cancellationToken);
 
@@ -212,7 +227,7 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
                     Guid.NewGuid().ToString("N"),
                     embedding,
                     compatibility,
-                    result,
+                    outcome.Result,
                     DateTime.UtcNow);
 
             await _cache.StoreAsync(
@@ -233,11 +248,11 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
                 request.CorrelationId);
         }
 
-        return result;
+        return outcome;
     }
 
-    private async Task<AlternativeRecommendationResult>
-        GeneratePrimaryAsync(
+    private async Task<AlternativeRecommendationGenerationOutcome>
+        GeneratePrimaryOutcomeAsync(
             AlternativeRecommendationRequest request,
             CancellationToken cancellationToken)
     {
@@ -251,6 +266,8 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
                 request,
                 result);
 
-        return result;
+        return new AlternativeRecommendationGenerationOutcome(
+            result,
+            AlternativeRecommendationSource.Llm);
     }
 }

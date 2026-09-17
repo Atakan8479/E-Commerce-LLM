@@ -1,5 +1,6 @@
 using ECommerce.FlashSaleOrchestrator.Application
     .Abstractions.Messaging;
+using ECommerce.FlashSaleOrchestrator.Application.AlternativeRecommendations;
 using ECommerce.FlashSaleOrchestrator.Application
     .IntegrationEvents.Inventory;
 using ECommerce.FlashSaleOrchestrator.Infrastructure;
@@ -179,6 +180,13 @@ builder.Services.AddAlternativeRecommendationAi(
     openAiModelId,
     openAiEndpoint,
     openAiApiKey);
+
+builder.Services.AddSingleton(
+    TimeProvider.System);
+
+builder.Services.AddScoped<
+    IStockDepletedRecommendationOrchestrator,
+    StockDepletedRecommendationOrchestrator>();
 
 builder.Services
     .AddOptions<KafkaConsumerOptions>()

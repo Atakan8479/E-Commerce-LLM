@@ -7,6 +7,7 @@ using ECommerce.FlashSaleOrchestrator.Domain.FlashSales;
 using ECommerce.FlashSaleOrchestrator.Domain.Inventory;
 using ECommerce.FlashSaleOrchestrator.Domain.Products;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Observability;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.AlternativeRecommendations;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Inbox;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence.Outbox;
 using Microsoft.EntityFrameworkCore;
@@ -59,6 +60,10 @@ public sealed class FlashSaleOrchestratorDbContext
 
     public DbSet<InboxMessage> InboxMessages =>
         Set<InboxMessage>();
+
+    public DbSet<AlternativeRecommendationPlanRecord>
+        AlternativeRecommendationPlans =>
+            Set<AlternativeRecommendationPlanRecord>();
 
     protected override void OnModelCreating(
         ModelBuilder modelBuilder)
