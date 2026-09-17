@@ -3,6 +3,8 @@ using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
 using ECommerce.FlashSaleOrchestrator.Infrastructure;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Messaging.Kafka;
 using ECommerce.FlashSaleOrchestrator.Api.Middleware;
+using ECommerce.FlashSaleOrchestrator.Application.Carts.GetCart;
+using ECommerce.FlashSaleOrchestrator.Application.Inventory.DecreaseStock;
 
 var builder =
     WebApplication.CreateBuilder(args);
@@ -26,6 +28,16 @@ builder.Services.AddOpenApi();
 
 builder.Services.AddInfrastructure(
     sqlConnectionString);
+
+builder.Services.AddScoped<
+    IQueryHandler<GetCartQuery, CartResult?>,
+    GetCartQueryHandler>();
+
+builder.Services.AddScoped<
+    ICommandHandler<
+        DecreaseStockCommand,
+        DecreaseStockResult>,
+    DecreaseStockCommandHandler>();
 
 builder.Services
     .AddOptions<OutboxPublisherOptions>()
