@@ -57,6 +57,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel.ChatCompletion;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .Persistence.Repositories;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure
     .IntegrationTests.EndToEnd;
@@ -497,7 +499,8 @@ public sealed class StockDepletedPipelineEndToEndTests
             CreateCandidateRetrievalServiceProvider(
                 database,
                 topic,
-                candidateProbe);
+                candidateProbe,
+                AlternativeRecommendationSource.Deterministic);
 
         var serviceScopeFactory =
             serviceProvider.GetRequiredService<
@@ -650,6 +653,222 @@ public sealed class StockDepletedPipelineEndToEndTests
 
         Assert.NotNull(
             inboxMessage.ProcessedAtUtc);
+
+        var recommendationPlan =
+            await verificationContext
+                .AlternativeRecommendationPlans
+                .AsNoTracking()
+                .SingleAsync(
+                    record =>
+                        record.EventId ==
+                        eventId);
+
+        Assert.Equal(
+            eventId,
+            recommendationPlan.EventId);
+
+        Assert.Equal(
+            depletedProductId,
+            recommendationPlan.OriginalProductId);
+
+        Assert.Equal(
+            correlationId,
+            recommendationPlan.CorrelationId);
+
+        Assert.Equal(
+            AlternativeRecommendationSource.Deterministic,
+            recommendationPlan.Source);
+
+        Assert.NotEqual(
+            default,
+            recommendationPlan.CreatedAtUtc);
+
+        var recommendationResult =
+            JsonSerializer.Deserialize<
+                AlternativeRecommendationResult>(
+                recommendationPlan.PayloadJson,
+                new JsonSerializerOptions(
+                    JsonSerializerDefaults.Web));
+
+        Assert.NotNull(
+            recommendationResult);
+
+        Assert.Empty(
+            recommendationResult.Recommendations);
+    }
+
+    [Theory]
+    [InlineData(AlternativeRecommendationSource.Cache)]
+    [InlineData(AlternativeRecommendationSource.Llm)]
+    [InlineData(AlternativeRecommendationSource.Deterministic)]
+    public async Task
+    Pipeline_ShouldPersistRecommendationSource_WhenRecommendationIsGenerated(
+        AlternativeRecommendationSource recommendationSource)
+    {
+        await using var database =
+            await OutboxTestDatabase.CreateAsync();
+
+        await using var topic =
+            await KafkaTestTopic.CreateAsync();
+
+        var eventId =
+            Guid.NewGuid();
+
+        var depletedProductId =
+            Guid.NewGuid();
+
+        var highStockCandidateId =
+            Guid.NewGuid();
+
+        var lowStockCandidateId =
+            Guid.NewGuid();
+
+        var differentCategoryProductId =
+            Guid.NewGuid();
+
+        var correlationId =
+            $"e2e-source-{recommendationSource}-{Guid.NewGuid():N}";
+
+        await SeedCandidateProductsAsync(
+            database,
+            depletedProductId,
+            highStockCandidateId,
+            lowStockCandidateId,
+            differentCategoryProductId);
+
+        await SeedPendingOutboxMessageAsync(
+            database,
+            eventId,
+            depletedProductId,
+            DateTime.UtcNow,
+            correlationId);
+
+        var candidateProbe =
+            new CandidateProbe();
+
+        await using var serviceProvider =
+            CreateCandidateRetrievalServiceProvider(
+                database,
+                topic,
+                candidateProbe,
+                recommendationSource);
+
+        var serviceScopeFactory =
+            serviceProvider.GetRequiredService<
+                IServiceScopeFactory>();
+
+        using var outboxWorker =
+            CreateOutboxWorker(
+                serviceScopeFactory);
+
+        var deadLetterPublisher =
+            new RecordingDeadLetterPublisher();
+
+        using var consumerWorker =
+            CreateConsumerWorker(
+                topic,
+                serviceScopeFactory,
+                deadLetterPublisher,
+                $"flashsale-e2e-source-{Guid.NewGuid():N}");
+
+        await consumerWorker.StartAsync(
+            CancellationToken.None);
+
+        await outboxWorker.StartAsync(
+            CancellationToken.None);
+
+        try
+        {
+            try
+            {
+                await candidateProbe.WaitAsync(
+                    TimeSpan.FromSeconds(15));
+            }
+            catch (TimeoutException)
+                when (deadLetterPublisher.LastMessage is not null)
+            {
+                throw CreateDeadLetterException(
+                    deadLetterPublisher.LastMessage);
+            }
+
+            await WaitUntilAsync(
+                async () =>
+                {
+                    await using var context =
+                        database.CreateContext();
+
+                    return await context
+                        .AlternativeRecommendationPlans
+                        .AsNoTracking()
+                        .AnyAsync(
+                            plan =>
+                                plan.EventId ==
+                                eventId);
+                },
+                TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            await StopWorkersAsync(
+                outboxWorker,
+                consumerWorker);
+        }
+
+        Assert.Equal(
+            0,
+            deadLetterPublisher.InvocationCount);
+
+        await using var verificationContext =
+            database.CreateContext();
+
+        var recommendationPlan =
+            await verificationContext
+                .AlternativeRecommendationPlans
+                .AsNoTracking()
+                .SingleAsync(
+                    plan =>
+                        plan.EventId ==
+                        eventId);
+
+        Assert.Equal(
+            eventId,
+            recommendationPlan.EventId);
+
+        Assert.Equal(
+            depletedProductId,
+            recommendationPlan.OriginalProductId);
+
+        Assert.Equal(
+            correlationId,
+            recommendationPlan.CorrelationId);
+
+        Assert.Equal(
+            recommendationSource,
+            recommendationPlan.Source);
+
+        var inboxMessage =
+            await verificationContext
+                .InboxMessages
+                .AsNoTracking()
+                .SingleAsync(
+                    message =>
+                        message.Id ==
+                        eventId);
+
+        Assert.NotNull(
+            inboxMessage.ProcessedAtUtc);
+
+        var outboxMessage =
+            await verificationContext
+                .OutboxMessages
+                .AsNoTracking()
+                .SingleAsync(
+                    message =>
+                        message.Id ==
+                        eventId);
+
+        Assert.NotNull(
+            outboxMessage.ProcessedAtUtc);
     }
 
     [Fact]
@@ -1770,7 +1989,8 @@ public sealed class StockDepletedPipelineEndToEndTests
         CreateCandidateRetrievalServiceProvider(
             OutboxTestDatabase database,
             KafkaTestTopic topic,
-            CandidateProbe candidateProbe)
+            CandidateProbe candidateProbe,
+            AlternativeRecommendationSource recommendationSource)
     {
         var services =
             new ServiceCollection();
@@ -1820,12 +2040,14 @@ public sealed class StockDepletedPipelineEndToEndTests
             RecordingAlternativeCandidateProvider>();
 
         services.AddScoped<
-            IAlternativeRecommendationExecutor,
-            NoOpAlternativeRecommendationExecutor>();
+            IAlternativeRecommendationExecutor>(
+            _ =>
+                new FixedSourceAlternativeRecommendationExecutor(
+                    recommendationSource));
 
         services.AddScoped<
             IAlternativeRecommendationPlanRepository,
-            NoOpAlternativeRecommendationPlanRepository>();
+            AlternativeRecommendationPlanRepository>();
 
         services.AddSingleton(
             TimeProvider.System);
@@ -1894,9 +2116,27 @@ public sealed class StockDepletedPipelineEndToEndTests
         }
     }
 
-    private sealed class NoOpAlternativeRecommendationExecutor
-        : IAlternativeRecommendationExecutor
+    private sealed class FixedSourceAlternativeRecommendationExecutor
+    : IAlternativeRecommendationExecutor
     {
+        private readonly AlternativeRecommendationSource
+            _source;
+
+        public FixedSourceAlternativeRecommendationExecutor(
+            AlternativeRecommendationSource source)
+        {
+            if (!Enum.IsDefined(source))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(source),
+                    source,
+                    "Recommendation source is not supported.");
+            }
+
+            _source =
+                source;
+        }
+
         public Task<
             AlternativeRecommendationGenerationOutcome>
             ExecuteAsync(
@@ -1912,7 +2152,7 @@ public sealed class StockDepletedPipelineEndToEndTests
                 new AlternativeRecommendationGenerationOutcome(
                     new AlternativeRecommendationResult(
                         []),
-                    AlternativeRecommendationSource.Deterministic));
+                    _source));
         }
     }
 
