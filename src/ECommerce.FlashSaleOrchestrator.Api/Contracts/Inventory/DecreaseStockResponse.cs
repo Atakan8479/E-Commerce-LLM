@@ -5,4 +5,5 @@ public sealed record DecreaseStockResponse(
     Guid ProductId,
     int RemainingQuantity,
     bool IsDepleted,
+    bool RecommendationRequested,
     string CorrelationId);

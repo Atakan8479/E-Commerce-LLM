@@ -132,6 +132,7 @@ public sealed class InventoryController
                 result.ProductId,
                 result.RemainingQuantity,
                 result.IsDepleted,
+                result.IsDepleted,
                 _correlationContext.CorrelationId));
     }
 
