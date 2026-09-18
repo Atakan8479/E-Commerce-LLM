@@ -5,6 +5,7 @@ using ECommerce.FlashSaleOrchestrator.Infrastructure.Messaging.Kafka;
 using ECommerce.FlashSaleOrchestrator.Api.Middleware;
 using ECommerce.FlashSaleOrchestrator.Application.Carts.GetCart;
 using ECommerce.FlashSaleOrchestrator.Application.Inventory.DecreaseStock;
+using ECommerce.FlashSaleOrchestrator.Api.ExceptionHandling;
 
 var builder =
     WebApplication.CreateBuilder(args);
@@ -21,6 +22,11 @@ if (string.IsNullOrWhiteSpace(
 }
 
 builder.Services.AddControllers();
+
+builder.Services.AddProblemDetails();
+
+builder.Services.AddExceptionHandler<
+    GlobalExceptionHandler>();
 
 builder.Services.AddHealthChecks();
 
@@ -88,6 +94,8 @@ if (app.Environment.IsDevelopment())
 
 app.UseMiddleware<
     CorrelationIdMiddleware>();
+
+app.UseExceptionHandler();
 
 app.UseHttpsRedirection();
 
