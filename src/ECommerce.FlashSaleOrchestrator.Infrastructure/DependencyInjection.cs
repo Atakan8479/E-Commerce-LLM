@@ -66,6 +66,10 @@ public static class DependencyInjection
             IInventoryRepository,
             InventoryRepository>();
 
+        services.AddScoped<
+            IProductRepository,
+            ProductRepository>();
+
         return services;
     }
 }

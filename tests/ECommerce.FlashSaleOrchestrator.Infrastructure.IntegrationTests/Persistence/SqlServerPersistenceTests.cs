@@ -15,6 +15,80 @@ namespace ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.Persis
 public sealed class SqlServerPersistenceTests
 {
     [Fact]
+    public async Task ProductRepository_ShouldLoadPersistedProduct()
+    {
+        await using var database =
+            await TestDatabase.CreateAsync();
+
+        var productId =
+            ProductId.New();
+
+        var category =
+            ProductCategory.From(
+                "Gaming");
+
+        await using (var arrangeContext =
+            database.CreateContext())
+        {
+            arrangeContext.Products.Add(
+                Product.Create(
+                    productId,
+                    ProductName.From(
+                        "Gaming Mouse"),
+                    category));
+
+            await arrangeContext.SaveChangesAsync();
+        }
+
+        await using var queryContext =
+            database.CreateContext();
+
+        var repository =
+            new ProductRepository(
+                queryContext);
+
+        var product =
+            await repository.GetByIdAsync(
+                productId);
+
+        Assert.NotNull(
+            product);
+
+        Assert.Equal(
+            productId.Value,
+            product.Id.Value);
+
+        Assert.Equal(
+            "Gaming Mouse",
+            product.Name.Value);
+
+        Assert.Equal(
+            "gaming",
+            product.Category.Value);
+    }
+
+    [Fact]
+    public async Task ProductRepository_ShouldReturnNull_WhenProductDoesNotExist()
+    {
+        await using var database =
+            await TestDatabase.CreateAsync();
+
+        await using var queryContext =
+            database.CreateContext();
+
+        var repository =
+            new ProductRepository(
+                queryContext);
+
+        var product =
+            await repository.GetByIdAsync(
+                ProductId.New());
+
+        Assert.Null(
+            product);
+    }
+
+    [Fact]
     public async Task InventoryRepository_ShouldLoadPersistedInventoryItem()
     {
         await using var database =
