@@ -5,6 +5,7 @@ using ECommerce.FlashSaleOrchestrator.Application
     .AlternativeRecommendations;
 using ECommerce.FlashSaleOrchestrator.Infrastructure
     .Persistence.AlternativeRecommendations;
+using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure
     .Persistence.Repositories;
@@ -55,5 +56,67 @@ public sealed class AlternativeRecommendationPlanRepository
             .AddAsync(
                 record,
                 cancellationToken);
+    }
+
+    public async Task<
+        IReadOnlyList<AlternativeRecommendationPlan>>
+        ListByCorrelationIdAsync(
+            string correlationId,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            correlationId);
+
+        var records =
+            await _dbContext
+                .AlternativeRecommendationPlans
+                .AsNoTracking()
+                .Where(
+                    plan =>
+                        plan.CorrelationId ==
+                        correlationId)
+                .OrderBy(
+                    plan =>
+                        plan.CreatedAtUtc)
+                .ThenBy(
+                    plan =>
+                        plan.EventId)
+                .ToArrayAsync(
+                    cancellationToken);
+
+        return records
+            .Select(
+                MapToPlan)
+            .ToArray();
+    }
+
+    private static AlternativeRecommendationPlan
+        MapToPlan(
+            AlternativeRecommendationPlanRecord record)
+    {
+        var result =
+            JsonSerializer.Deserialize<
+                AlternativeRecommendationResult>(
+                record.PayloadJson,
+                JsonOptions)
+            ?? throw new InvalidOperationException(
+                $"Recommendation payload for event " +
+                $"'{record.EventId}' could not be deserialized.");
+
+        var createdAtUtc =
+            record.CreatedAtUtc.Kind ==
+            DateTimeKind.Utc
+                ? record.CreatedAtUtc
+                : DateTime.SpecifyKind(
+                    record.CreatedAtUtc,
+                    DateTimeKind.Utc);
+
+        return new AlternativeRecommendationPlan(
+            record.EventId,
+            record.OriginalProductId,
+            result,
+            record.Source,
+            record.CorrelationId,
+            createdAtUtc);
     }
 }

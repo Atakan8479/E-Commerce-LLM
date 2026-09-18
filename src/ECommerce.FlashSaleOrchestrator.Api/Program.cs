@@ -1,15 +1,29 @@
 using ECommerce.FlashSaleOrchestrator.Api.BackgroundServices;
-using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
-using ECommerce.FlashSaleOrchestrator.Infrastructure;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.Messaging.Kafka;
+using ECommerce.FlashSaleOrchestrator.Api.ExceptionHandling;
 using ECommerce.FlashSaleOrchestrator.Api.Middleware;
+using ECommerce.FlashSaleOrchestrator.Api.Validation;
+using ECommerce.FlashSaleOrchestrator.Application
+    .Abstractions.Messaging;
+using ECommerce.FlashSaleOrchestrator.Application
+    .Carts.GetCart;
+using ECommerce.FlashSaleOrchestrator.Application
+    .Inventory.DecreaseStock;
+using ECommerce.FlashSaleOrchestrator.Application
+    .Inventory.GetInventory;
+using ECommerce.FlashSaleOrchestrator.Application
+    .Products.GetProduct;
+using ECommerce.FlashSaleOrchestrator.Infrastructure;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .Messaging.Kafka;
+using ECommerce.FlashSaleOrchestrator.Application
+    .AlternativeRecommendations.GetRecommendationPlans;
 
 var builder =
     WebApplication.CreateBuilder(args);
 
 var sqlConnectionString =
-    Environment.GetEnvironmentVariable(
-        "FLASHSALE_SQL_CONNECTION");
+    builder.Configuration[
+        "FLASHSALE_SQL_CONNECTION"];
 
 if (string.IsNullOrWhiteSpace(
     sqlConnectionString))
@@ -18,7 +32,20 @@ if (string.IsNullOrWhiteSpace(
         "Environment variable 'FLASHSALE_SQL_CONNECTION' must be configured.");
 }
 
-builder.Services.AddControllers();
+builder.Services
+    .AddControllers()
+    .ConfigureApiBehaviorOptions(
+        options =>
+        {
+            options.InvalidModelStateResponseFactory =
+                ApiValidationProblemDetailsFactory
+                    .Create;
+        });
+
+builder.Services.AddProblemDetails();
+
+builder.Services.AddExceptionHandler<
+    GlobalExceptionHandler>();
 
 builder.Services.AddHealthChecks();
 
@@ -26,6 +53,36 @@ builder.Services.AddOpenApi();
 
 builder.Services.AddInfrastructure(
     sqlConnectionString);
+
+builder.Services.AddScoped<
+    IQueryHandler<
+        GetCartQuery,
+        CartResult?>,
+    GetCartQueryHandler>();
+
+builder.Services.AddScoped<
+    IQueryHandler<
+        GetProductQuery,
+        ProductResult?>,
+    GetProductQueryHandler>();
+
+builder.Services.AddScoped<
+    IQueryHandler<
+        GetInventoryQuery,
+        InventoryResult?>,
+    GetInventoryQueryHandler>();
+
+builder.Services.AddScoped<
+    ICommandHandler<
+        DecreaseStockCommand,
+        DecreaseStockResult>,
+    DecreaseStockCommandHandler>();
+
+builder.Services.AddScoped<
+    IQueryHandler<
+        GetRecommendationPlansByCorrelationIdQuery,
+        IReadOnlyList<RecommendationPlanResult>>,
+    GetRecommendationPlansByCorrelationIdQueryHandler>();
 
 builder.Services
     .AddOptions<OutboxPublisherOptions>()
@@ -77,6 +134,8 @@ if (app.Environment.IsDevelopment())
 app.UseMiddleware<
     CorrelationIdMiddleware>();
 
+app.UseExceptionHandler();
+
 app.UseHttpsRedirection();
 
 app.UseAuthorization();
@@ -87,3 +146,7 @@ app.MapHealthChecks(
 app.MapControllers();
 
 app.Run();
+
+public partial class Program
+{
+}

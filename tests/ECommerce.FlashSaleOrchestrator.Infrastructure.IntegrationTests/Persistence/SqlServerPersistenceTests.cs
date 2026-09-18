@@ -15,6 +15,80 @@ namespace ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.Persis
 public sealed class SqlServerPersistenceTests
 {
     [Fact]
+    public async Task ProductRepository_ShouldLoadPersistedProduct()
+    {
+        await using var database =
+            await TestDatabase.CreateAsync();
+
+        var productId =
+            ProductId.New();
+
+        var category =
+            ProductCategory.From(
+                "Gaming");
+
+        await using (var arrangeContext =
+            database.CreateContext())
+        {
+            arrangeContext.Products.Add(
+                Product.Create(
+                    productId,
+                    ProductName.From(
+                        "Gaming Mouse"),
+                    category));
+
+            await arrangeContext.SaveChangesAsync();
+        }
+
+        await using var queryContext =
+            database.CreateContext();
+
+        var repository =
+            new ProductRepository(
+                queryContext);
+
+        var product =
+            await repository.GetByIdAsync(
+                productId);
+
+        Assert.NotNull(
+            product);
+
+        Assert.Equal(
+            productId.Value,
+            product.Id.Value);
+
+        Assert.Equal(
+            "Gaming Mouse",
+            product.Name.Value);
+
+        Assert.Equal(
+            "gaming",
+            product.Category.Value);
+    }
+
+    [Fact]
+    public async Task ProductRepository_ShouldReturnNull_WhenProductDoesNotExist()
+    {
+        await using var database =
+            await TestDatabase.CreateAsync();
+
+        await using var queryContext =
+            database.CreateContext();
+
+        var repository =
+            new ProductRepository(
+                queryContext);
+
+        var product =
+            await repository.GetByIdAsync(
+                ProductId.New());
+
+        Assert.Null(
+            product);
+    }
+
+    [Fact]
     public async Task InventoryRepository_ShouldLoadPersistedInventoryItem()
     {
         await using var database =
@@ -181,6 +255,209 @@ public sealed class SqlServerPersistenceTests
                 .GetProperty(
                     "reason")
                 .GetString());
+    }
+
+    [Fact]
+    public async Task
+    AlternativeRecommendationPlanRepository_ShouldLoadPlansByCorrelationId()
+    {
+        await using var database =
+            await TestDatabase.CreateAsync();
+
+        var correlationId =
+            $"correlation-{Guid.NewGuid():N}";
+
+        var firstEventId =
+            Guid.NewGuid();
+
+        var secondEventId =
+            Guid.NewGuid();
+
+        var firstProductId =
+            Guid.NewGuid();
+
+        var secondProductId =
+            Guid.NewGuid();
+
+        var firstRecommendedProductId =
+            Guid.NewGuid();
+
+        var secondRecommendedProductId =
+            Guid.NewGuid();
+
+        var firstCreatedAtUtc =
+            new DateTime(
+                2026,
+                9,
+                18,
+                19,
+                0,
+                0,
+                DateTimeKind.Utc);
+
+        var secondCreatedAtUtc =
+            firstCreatedAtUtc.AddSeconds(
+                1);
+
+        var firstPlan =
+            new AlternativeRecommendationPlan(
+                firstEventId,
+                firstProductId,
+                new AlternativeRecommendationResult(
+                    new[]
+                    {
+                    new AlternativeRecommendation(
+                        firstRecommendedProductId,
+                        "First recommendation.")
+                    }),
+                AlternativeRecommendationSource.Cache,
+                correlationId,
+                firstCreatedAtUtc);
+
+        var secondPlan =
+            new AlternativeRecommendationPlan(
+                secondEventId,
+                secondProductId,
+                new AlternativeRecommendationResult(
+                    new[]
+                    {
+                    new AlternativeRecommendation(
+                        secondRecommendedProductId,
+                        "Second recommendation.")
+                    }),
+                AlternativeRecommendationSource.Llm,
+                correlationId,
+                secondCreatedAtUtc);
+
+        await using (var writeContext =
+            database.CreateContext())
+        {
+            var repository =
+                new AlternativeRecommendationPlanRepository(
+                    writeContext);
+
+            await repository.AddAsync(
+                firstPlan);
+
+            await repository.AddAsync(
+                secondPlan);
+
+            await writeContext.SaveChangesAsync();
+        }
+
+        await using var readContext =
+            database.CreateContext();
+
+        var readRepository =
+            new AlternativeRecommendationPlanRepository(
+                readContext);
+
+        var plans =
+            await readRepository
+                .ListByCorrelationIdAsync(
+                    correlationId);
+
+        Assert.Collection(
+            plans,
+            first =>
+            {
+                Assert.Equal(
+                    firstEventId,
+                    first.EventId);
+
+                Assert.Equal(
+                    firstProductId,
+                    first.OriginalProductId);
+
+                Assert.Equal(
+                    AlternativeRecommendationSource.Cache,
+                    first.Source);
+
+                Assert.Equal(
+                    correlationId,
+                    first.CorrelationId);
+
+                Assert.Equal(
+                    firstCreatedAtUtc,
+                    first.CreatedAtUtc);
+
+                Assert.Equal(
+                    DateTimeKind.Utc,
+                    first.CreatedAtUtc.Kind);
+
+                var recommendation =
+                    Assert.Single(
+                        first.Result.Recommendations);
+
+                Assert.Equal(
+                    firstRecommendedProductId,
+                    recommendation.ProductId);
+
+                Assert.Equal(
+                    "First recommendation.",
+                    recommendation.Reason);
+            },
+            second =>
+            {
+                Assert.Equal(
+                    secondEventId,
+                    second.EventId);
+
+                Assert.Equal(
+                    secondProductId,
+                    second.OriginalProductId);
+
+                Assert.Equal(
+                    AlternativeRecommendationSource.Llm,
+                    second.Source);
+
+                Assert.Equal(
+                    correlationId,
+                    second.CorrelationId);
+
+                Assert.Equal(
+                    secondCreatedAtUtc,
+                    second.CreatedAtUtc);
+
+                Assert.Equal(
+                    DateTimeKind.Utc,
+                    second.CreatedAtUtc.Kind);
+
+                var recommendation =
+                    Assert.Single(
+                        second.Result.Recommendations);
+
+                Assert.Equal(
+                    secondRecommendedProductId,
+                    recommendation.ProductId);
+
+                Assert.Equal(
+                    "Second recommendation.",
+                    recommendation.Reason);
+            });
+    }
+
+    [Fact]
+    public async Task
+        AlternativeRecommendationPlanRepository_ShouldReturnEmpty_WhenCorrelationIdDoesNotExist()
+    {
+        await using var database =
+            await TestDatabase.CreateAsync();
+
+        await using var context =
+            database.CreateContext();
+
+        var repository =
+            new AlternativeRecommendationPlanRepository(
+                context);
+
+        var plans =
+            await repository
+                .ListByCorrelationIdAsync(
+                    $"missing-{Guid.NewGuid():N}");
+
+        Assert.Empty(
+            plans);
     }
 
     [Fact]

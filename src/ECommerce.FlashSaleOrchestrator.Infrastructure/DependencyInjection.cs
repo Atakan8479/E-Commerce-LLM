@@ -53,6 +53,23 @@ public static class DependencyInjection
             IAlternativeRecommendationPlanRepository,
             AlternativeRecommendationPlanRepository>();
 
+        services.AddScoped<IUnitOfWork>(
+            serviceProvider =>
+                serviceProvider.GetRequiredService<
+                    FlashSaleOrchestratorDbContext>());
+
+        services.AddScoped<
+            ICartRepository,
+            CartRepository>();
+
+        services.AddScoped<
+            IInventoryRepository,
+            InventoryRepository>();
+
+        services.AddScoped<
+            IProductRepository,
+            ProductRepository>();
+
         return services;
     }
 }
