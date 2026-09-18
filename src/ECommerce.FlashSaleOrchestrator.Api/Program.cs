@@ -15,6 +15,8 @@ using ECommerce.FlashSaleOrchestrator.Application
 using ECommerce.FlashSaleOrchestrator.Infrastructure;
 using ECommerce.FlashSaleOrchestrator.Infrastructure
     .Messaging.Kafka;
+using ECommerce.FlashSaleOrchestrator.Application
+    .AlternativeRecommendations.GetRecommendationPlans;
 
 var builder =
     WebApplication.CreateBuilder(args);
@@ -75,6 +77,12 @@ builder.Services.AddScoped<
         DecreaseStockCommand,
         DecreaseStockResult>,
     DecreaseStockCommandHandler>();
+
+builder.Services.AddScoped<
+    IQueryHandler<
+        GetRecommendationPlansByCorrelationIdQuery,
+        IReadOnlyList<RecommendationPlanResult>>,
+    GetRecommendationPlansByCorrelationIdQueryHandler>();
 
 builder.Services
     .AddOptions<OutboxPublisherOptions>()
