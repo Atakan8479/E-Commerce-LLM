@@ -6,6 +6,7 @@ using ECommerce.FlashSaleOrchestrator.Api.Middleware;
 using ECommerce.FlashSaleOrchestrator.Application.Carts.GetCart;
 using ECommerce.FlashSaleOrchestrator.Application.Inventory.DecreaseStock;
 using ECommerce.FlashSaleOrchestrator.Api.ExceptionHandling;
+using ECommerce.FlashSaleOrchestrator.Api.Validation;
 
 var builder =
     WebApplication.CreateBuilder(args);
@@ -21,7 +22,15 @@ if (string.IsNullOrWhiteSpace(
         "Environment variable 'FLASHSALE_SQL_CONNECTION' must be configured.");
 }
 
-builder.Services.AddControllers();
+builder.Services
+    .AddControllers()
+    .ConfigureApiBehaviorOptions(
+        options =>
+        {
+            options.InvalidModelStateResponseFactory =
+                ApiValidationProblemDetailsFactory
+                    .Create;
+        });
 
 builder.Services.AddProblemDetails();
 
