@@ -1,12 +1,18 @@
 using ECommerce.FlashSaleOrchestrator.Api.BackgroundServices;
-using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Messaging;
-using ECommerce.FlashSaleOrchestrator.Infrastructure;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.Messaging.Kafka;
-using ECommerce.FlashSaleOrchestrator.Api.Middleware;
-using ECommerce.FlashSaleOrchestrator.Application.Carts.GetCart;
-using ECommerce.FlashSaleOrchestrator.Application.Inventory.DecreaseStock;
 using ECommerce.FlashSaleOrchestrator.Api.ExceptionHandling;
+using ECommerce.FlashSaleOrchestrator.Api.Middleware;
 using ECommerce.FlashSaleOrchestrator.Api.Validation;
+using ECommerce.FlashSaleOrchestrator.Application
+    .Abstractions.Messaging;
+using ECommerce.FlashSaleOrchestrator.Application
+    .Carts.GetCart;
+using ECommerce.FlashSaleOrchestrator.Application
+    .Inventory.DecreaseStock;
+using ECommerce.FlashSaleOrchestrator.Application
+    .Products.GetProduct;
+using ECommerce.FlashSaleOrchestrator.Infrastructure;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .Messaging.Kafka;
 
 var builder =
     WebApplication.CreateBuilder(args);
@@ -45,8 +51,16 @@ builder.Services.AddInfrastructure(
     sqlConnectionString);
 
 builder.Services.AddScoped<
-    IQueryHandler<GetCartQuery, CartResult?>,
+    IQueryHandler<
+        GetCartQuery,
+        CartResult?>,
     GetCartQueryHandler>();
+
+builder.Services.AddScoped<
+    IQueryHandler<
+        GetProductQuery,
+        ProductResult?>,
+    GetProductQueryHandler>();
 
 builder.Services.AddScoped<
     ICommandHandler<
