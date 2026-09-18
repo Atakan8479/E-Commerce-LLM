@@ -9,6 +9,8 @@ using ECommerce.FlashSaleOrchestrator.Application
 using ECommerce.FlashSaleOrchestrator.Application
     .Inventory.DecreaseStock;
 using ECommerce.FlashSaleOrchestrator.Application
+    .Inventory.GetInventory;
+using ECommerce.FlashSaleOrchestrator.Application
     .Products.GetProduct;
 using ECommerce.FlashSaleOrchestrator.Infrastructure;
 using ECommerce.FlashSaleOrchestrator.Infrastructure
@@ -61,6 +63,12 @@ builder.Services.AddScoped<
         GetProductQuery,
         ProductResult?>,
     GetProductQueryHandler>();
+
+builder.Services.AddScoped<
+    IQueryHandler<
+        GetInventoryQuery,
+        InventoryResult?>,
+    GetInventoryQueryHandler>();
 
 builder.Services.AddScoped<
     ICommandHandler<
