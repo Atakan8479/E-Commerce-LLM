@@ -22,8 +22,8 @@ var builder =
     WebApplication.CreateBuilder(args);
 
 var sqlConnectionString =
-    Environment.GetEnvironmentVariable(
-        "FLASHSALE_SQL_CONNECTION");
+    builder.Configuration[
+        "FLASHSALE_SQL_CONNECTION"];
 
 if (string.IsNullOrWhiteSpace(
     sqlConnectionString))
@@ -146,3 +146,7 @@ app.MapHealthChecks(
 app.MapControllers();
 
 app.Run();
+
+public partial class Program
+{
+}
