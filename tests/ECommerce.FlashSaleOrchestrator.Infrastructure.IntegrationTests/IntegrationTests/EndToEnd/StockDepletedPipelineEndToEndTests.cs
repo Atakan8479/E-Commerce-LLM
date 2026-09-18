@@ -2171,6 +2171,21 @@ public sealed class StockDepletedPipelineEndToEndTests
 
             return Task.CompletedTask;
         }
+
+        public Task<IReadOnlyList<AlternativeRecommendationPlan>>
+            ListByCorrelationIdAsync(
+                string correlationId,
+                CancellationToken cancellationToken = default)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(
+                correlationId);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.FromResult<
+                IReadOnlyList<AlternativeRecommendationPlan>>(
+                    Array.Empty<AlternativeRecommendationPlan>());
+        }
     }
 
     private sealed class

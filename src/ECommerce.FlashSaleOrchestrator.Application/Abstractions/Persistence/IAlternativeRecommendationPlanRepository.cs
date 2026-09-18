@@ -9,4 +9,9 @@ public interface IAlternativeRecommendationPlanRepository
     Task AddAsync(
         AlternativeRecommendationPlan plan,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<AlternativeRecommendationPlan>>
+        ListByCorrelationIdAsync(
+            string correlationId,
+            CancellationToken cancellationToken = default);
 }
