@@ -1,13 +1,17 @@
-﻿using ECommerce.FlashSaleOrchestrator.Application
+﻿using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
+using ECommerce.FlashSaleOrchestrator.Application
     .AlternativeCandidates;
 using ECommerce.FlashSaleOrchestrator.Application
     .AlternativeRecommendations;
 using ECommerce.FlashSaleOrchestrator.Application
     .AlternativeRecommendations.SemanticCaching;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
 using ECommerce.FlashSaleOrchestrator.Infrastructure
     .AI.SemanticCaching;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .Observability;
 using Microsoft.Extensions.Logging.Abstractions;
-using ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
 
 namespace ECommerce.FlashSaleOrchestrator
     .Infrastructure.IntegrationTests.AI.SemanticCaching;
@@ -16,7 +20,8 @@ public sealed class
     CachedSemanticAlternativeRecommendationGeneratorTests
 {
     [Fact]
-    public async Task GenerateAsync_ShouldReturnCachedResultWithoutCallingPrimary_WhenCacheHitIsValid()
+    public async Task
+        GenerateAsync_ShouldReturnCachedResultWithoutCallingPrimary_WhenCacheHitIsValid()
     {
         var request =
             CreateRequest();
@@ -71,7 +76,8 @@ public sealed class
     }
 
     [Fact]
-    public async Task GenerateAsync_ShouldCallPrimaryAndStoreResult_WhenCacheMisses()
+    public async Task
+        GenerateAsync_ShouldCallPrimaryAndStoreResult_WhenCacheMisses()
     {
         var request =
             CreateRequest();
@@ -145,7 +151,8 @@ public sealed class
     }
 
     [Fact]
-    public async Task GenerateAsync_ShouldRemoveInvalidHitAndUsePrimary()
+    public async Task
+        GenerateAsync_ShouldRemoveInvalidHitAndUsePrimary()
     {
         var request =
             CreateRequest();
@@ -207,7 +214,8 @@ public sealed class
     }
 
     [Fact]
-    public async Task GenerateAsync_ShouldUsePrimary_WhenEmbeddingGenerationFails()
+    public async Task
+        GenerateAsync_ShouldUsePrimary_WhenEmbeddingGenerationFails()
     {
         var request =
             CreateRequest();
@@ -263,7 +271,8 @@ public sealed class
     }
 
     [Fact]
-    public async Task GenerateAsync_ShouldUsePrimary_WhenCacheLookupFails()
+    public async Task
+        GenerateAsync_ShouldUsePrimary_WhenCacheLookupFails()
     {
         var request =
             CreateRequest();
@@ -311,7 +320,8 @@ public sealed class
     }
 
     [Fact]
-    public async Task GenerateAsync_ShouldReturnPrimaryResult_WhenCacheStoreFails()
+    public async Task
+        GenerateAsync_ShouldReturnPrimaryResult_WhenCacheStoreFails()
     {
         var request =
             CreateRequest();
@@ -362,7 +372,8 @@ public sealed class
     }
 
     [Fact]
-    public async Task GenerateAsync_ShouldUsePrimary_WhenInvalidCacheEntryCannotBeRemoved()
+    public async Task
+        GenerateAsync_ShouldUsePrimary_WhenInvalidCacheEntryCannotBeRemoved()
     {
         var request =
             CreateRequest();
@@ -427,7 +438,8 @@ public sealed class
     }
 
     [Fact]
-    public async Task GenerateAsync_ShouldPropagateCancellation()
+    public async Task
+        GenerateAsync_ShouldPropagateCancellation()
     {
         var request =
             CreateRequest();
@@ -483,7 +495,8 @@ public sealed class
     }
 
     [Fact]
-    public async Task ExecuteAsync_ShouldReportCache_WhenCacheHitIsValid()
+    public async Task
+        ExecuteAsync_ShouldReportCache_WhenCacheHitIsValid()
     {
         var request =
             CreateRequest();
@@ -492,8 +505,8 @@ public sealed class
             new AlternativeRecommendationResult(
                 [
                     new AlternativeRecommendation(
-                    request.Candidates[0].ProductId,
-                    "Cached recommendation")
+                        request.Candidates[0].ProductId,
+                        "Cached recommendation")
                 ]);
 
         var primary =
@@ -534,7 +547,8 @@ public sealed class
     }
 
     [Fact]
-    public async Task ExecuteAsync_ShouldReportLlm_WhenCacheMisses()
+    public async Task
+        ExecuteAsync_ShouldReportLlm_WhenCacheMisses()
     {
         var request =
             CreateRequest();
@@ -574,6 +588,421 @@ public sealed class
         Assert.Equal(
             1,
             cache.StoreCount);
+    }
+
+    [Fact]
+    public async Task
+        GenerateAsync_ShouldEmitCacheHitMetric_WhenCacheHitIsValid()
+    {
+        var request =
+            CreateRequest();
+
+        var cachedResult =
+            new AlternativeRecommendationResult(
+                [
+                    new AlternativeRecommendation(
+                        request.Candidates[0].ProductId,
+                        "Cached recommendation")
+                ]);
+
+        var primary =
+            new FakePrimaryGenerator(
+                CreatePrimaryResult(
+                    request));
+
+        var cache =
+            new FakeSemanticRecommendationCache
+            {
+                MatchToReturn =
+                    new SemanticRecommendationCacheMatch(
+                        "metric-hit-entry",
+                        0.98,
+                        cachedResult)
+            };
+
+        var measurements =
+            new ConcurrentQueue<MetricMeasurement>();
+
+        using var listener =
+            CreateMetricsListener(
+                measurements);
+
+        var generator =
+            CreateGenerator(
+                primary,
+                cache);
+
+        await generator.GenerateAsync(
+            request);
+
+        Assert.Contains(
+            measurements,
+            measurement =>
+                measurement.InstrumentName ==
+                    "flashsale.semantic_cache.lookups"
+                && measurement.Value == 1
+                && measurement.GetTagValue(
+                    "status") == "hit");
+    }
+
+    [Fact]
+    public async Task
+        GenerateAsync_ShouldEmitCacheMissAndSuccessfulLlmMetrics_WhenCacheMisses()
+    {
+        var request =
+            CreateRequest();
+
+        var primary =
+            new FakePrimaryGenerator(
+                CreatePrimaryResult(
+                    request));
+
+        var cache =
+            new FakeSemanticRecommendationCache();
+
+        var measurements =
+            new ConcurrentQueue<MetricMeasurement>();
+
+        using var listener =
+            CreateMetricsListener(
+                measurements);
+
+        var generator =
+            CreateGenerator(
+                primary,
+                cache);
+
+        await generator.GenerateAsync(
+            request);
+
+        Assert.Contains(
+            measurements,
+            measurement =>
+                measurement.InstrumentName ==
+                    "flashsale.semantic_cache.lookups"
+                && measurement.Value == 1
+                && measurement.GetTagValue(
+                    "status") == "miss");
+
+        Assert.Contains(
+            measurements,
+            measurement =>
+                measurement.InstrumentName ==
+                    "flashsale.llm.requests"
+                && measurement.Value == 1);
+
+        Assert.Contains(
+            measurements,
+            measurement =>
+                measurement.InstrumentName ==
+                    "flashsale.llm.duration"
+                && measurement.Value >= 0
+                && measurement.GetTagValue(
+                    "outcome") == "success");
+    }
+
+    [Fact]
+    public async Task
+        GenerateAsync_ShouldEmitBypassedCacheMetric_WhenCacheLookupFails()
+    {
+        var request =
+            CreateRequest();
+
+        var primary =
+            new FakePrimaryGenerator(
+                CreatePrimaryResult(
+                    request));
+
+        var cache =
+            new FakeSemanticRecommendationCache
+            {
+                FindException =
+                    new InvalidOperationException(
+                        "Cache unavailable.")
+            };
+
+        var measurements =
+            new ConcurrentQueue<MetricMeasurement>();
+
+        using var listener =
+            CreateMetricsListener(
+                measurements);
+
+        var generator =
+            CreateGenerator(
+                primary,
+                cache);
+
+        await generator.GenerateAsync(
+            request);
+
+        Assert.Contains(
+            measurements,
+            measurement =>
+                measurement.InstrumentName ==
+                    "flashsale.semantic_cache.lookups"
+                && measurement.Value == 1
+                && measurement.GetTagValue(
+                    "status") == "bypassed");
+    }
+
+    [Fact]
+    public async Task
+        GenerateAsync_ShouldEmitInvalidCacheMetric_WhenCachedResultIsInvalid()
+    {
+        var request =
+            CreateRequest();
+
+        var invalidCachedResult =
+            new AlternativeRecommendationResult(
+                [
+                    new AlternativeRecommendation(
+                        Guid.NewGuid(),
+                        "Stale recommendation")
+                ]);
+
+        var primary =
+            new FakePrimaryGenerator(
+                CreatePrimaryResult(
+                    request));
+
+        var cache =
+            new FakeSemanticRecommendationCache
+            {
+                MatchToReturn =
+                    new SemanticRecommendationCacheMatch(
+                        "metric-invalid-entry",
+                        0.99,
+                        invalidCachedResult)
+            };
+
+        var measurements =
+            new ConcurrentQueue<MetricMeasurement>();
+
+        using var listener =
+            CreateMetricsListener(
+                measurements);
+
+        var generator =
+            CreateGenerator(
+                primary,
+                cache);
+
+        await generator.GenerateAsync(
+            request);
+
+        Assert.Contains(
+            measurements,
+            measurement =>
+                measurement.InstrumentName ==
+                    "flashsale.semantic_cache.lookups"
+                && measurement.Value == 1
+                && measurement.GetTagValue(
+                    "status") == "invalid");
+    }
+
+    [Fact]
+    public async Task
+        GenerateAsync_ShouldEmitFailedLlmMetrics_WhenPrimaryFails()
+    {
+        var request =
+            CreateRequest();
+
+        var primary =
+            new FakePrimaryGenerator(
+                CreatePrimaryResult(
+                    request),
+                _ =>
+                    Task.FromException<
+                        AlternativeRecommendationResult>(
+                        new InvalidOperationException(
+                            "LLM unavailable.")));
+
+        var cache =
+            new FakeSemanticRecommendationCache();
+
+        var measurements =
+            new ConcurrentQueue<MetricMeasurement>();
+
+        using var listener =
+            CreateMetricsListener(
+                measurements);
+
+        var generator =
+            CreateGenerator(
+                primary,
+                cache);
+
+        await Assert.ThrowsAsync<
+            InvalidOperationException>(
+            () =>
+                generator.GenerateAsync(
+                    request));
+
+        Assert.Contains(
+            measurements,
+            measurement =>
+                measurement.InstrumentName ==
+                    "flashsale.llm.requests"
+                && measurement.Value == 1);
+
+        Assert.Contains(
+            measurements,
+            measurement =>
+                measurement.InstrumentName ==
+                    "flashsale.llm.failures"
+                && measurement.Value == 1);
+
+        Assert.Contains(
+            measurements,
+            measurement =>
+                measurement.InstrumentName ==
+                    "flashsale.llm.duration"
+                && measurement.Value >= 0
+                && measurement.GetTagValue(
+                    "outcome") == "failure");
+    }
+
+    [Fact]
+    public async Task
+        GenerateAsync_ShouldEmitCancelledLlmDuration_WhenPrimaryIsCancelled()
+    {
+        var request =
+            CreateRequest();
+
+        using var cancellationTokenSource =
+            new CancellationTokenSource();
+
+        var primary =
+            new FakePrimaryGenerator(
+                CreatePrimaryResult(
+                    request),
+                cancellationToken =>
+                {
+                    cancellationTokenSource.Cancel();
+
+                    cancellationToken
+                        .ThrowIfCancellationRequested();
+
+                    return Task.FromResult(
+                        CreatePrimaryResult(
+                            request));
+                });
+
+        var cache =
+            new FakeSemanticRecommendationCache();
+
+        var measurements =
+            new ConcurrentQueue<MetricMeasurement>();
+
+        using var listener =
+            CreateMetricsListener(
+                measurements);
+
+        var generator =
+            CreateGenerator(
+                primary,
+                cache);
+
+        await Assert.ThrowsAnyAsync<
+            OperationCanceledException>(
+            () =>
+                generator.GenerateAsync(
+                    request,
+                    cancellationTokenSource.Token));
+
+        Assert.Contains(
+            measurements,
+            measurement =>
+                measurement.InstrumentName ==
+                    "flashsale.llm.requests"
+                && measurement.Value == 1);
+
+        Assert.Contains(
+            measurements,
+            measurement =>
+                measurement.InstrumentName ==
+                    "flashsale.llm.duration"
+                && measurement.Value >= 0
+                && measurement.GetTagValue(
+                    "outcome") == "cancelled");
+    }
+
+    private static MeterListener
+        CreateMetricsListener(
+            ConcurrentQueue<MetricMeasurement> measurements)
+    {
+        ArgumentNullException.ThrowIfNull(
+            measurements);
+
+        var listener =
+            new MeterListener();
+
+        listener.InstrumentPublished =
+            (instrument, meterListener) =>
+            {
+                if (instrument.Meter.Name !=
+                    InfrastructureMetrics.MeterName)
+                {
+                    return;
+                }
+
+                meterListener.EnableMeasurementEvents(
+                    instrument);
+            };
+
+        listener.SetMeasurementEventCallback<long>(
+            (
+                instrument,
+                measurement,
+                tags,
+                _) =>
+            {
+                measurements.Enqueue(
+                    new MetricMeasurement(
+                        instrument.Name,
+                        measurement,
+                        tags.ToArray()));
+            });
+
+        listener.SetMeasurementEventCallback<double>(
+            (
+                instrument,
+                measurement,
+                tags,
+                _) =>
+            {
+                measurements.Enqueue(
+                    new MetricMeasurement(
+                        instrument.Name,
+                        measurement,
+                        tags.ToArray()));
+            });
+
+        listener.Start();
+
+        return listener;
+    }
+
+    private sealed record MetricMeasurement(
+        string InstrumentName,
+        double Value,
+        IReadOnlyList<
+            KeyValuePair<string, object?>> Tags)
+    {
+        public string? GetTagValue(
+            string tagName)
+        {
+            return Tags
+                .FirstOrDefault(
+                    tag =>
+                        string.Equals(
+                            tag.Key,
+                            tagName,
+                            StringComparison.Ordinal))
+                .Value?
+                .ToString();
+        }
     }
 
     private static
@@ -645,11 +1074,23 @@ public sealed class
         private readonly AlternativeRecommendationResult
             _result;
 
+        private readonly Func<
+            CancellationToken,
+            Task<AlternativeRecommendationResult>>?
+            _behavior;
+
         public FakePrimaryGenerator(
-            AlternativeRecommendationResult result)
+            AlternativeRecommendationResult result,
+            Func<
+                CancellationToken,
+                Task<AlternativeRecommendationResult>>?
+                behavior = null)
         {
             _result =
                 result;
+
+            _behavior =
+                behavior;
         }
 
         public int CallCount { get; private set; }
@@ -662,6 +1103,12 @@ public sealed class
             cancellationToken.ThrowIfCancellationRequested();
 
             CallCount++;
+
+            if (_behavior is not null)
+            {
+                return _behavior(
+                    cancellationToken);
+            }
 
             return Task.FromResult(
                 _result);

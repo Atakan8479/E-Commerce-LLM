@@ -1,12 +1,17 @@
 ﻿using System.Text;
 using System.Text.Json;
 using Confluent.Kafka;
-using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Observability;
-using ECommerce.FlashSaleOrchestrator.Worker.Messaging.Kafka;
+using ECommerce.FlashSaleOrchestrator.Application
+    .Abstractions.Observability;
+using ECommerce.FlashSaleOrchestrator.Worker
+    .Messaging.Kafka;
+using ECommerce.FlashSaleOrchestrator.Worker
+    .Observability;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace ECommerce.FlashSaleOrchestrator.Worker.Messaging.DeadLetter;
+namespace ECommerce.FlashSaleOrchestrator.Worker
+    .Messaging.DeadLetter;
 
 public sealed class KafkaDeadLetterPublisher
     : IDeadLetterPublisher,
@@ -115,6 +120,9 @@ public sealed class KafkaDeadLetterPublisher
                 _options.StockDepletedDeadLetterTopic,
                 kafkaMessage,
                 cancellationToken);
+
+        WorkerMetrics.ConsumerDeadLetters.Add(
+            1);
 
         _logger.LogWarning(
             "Message published to dead-letter topic. " +

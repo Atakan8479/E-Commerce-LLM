@@ -1,10 +1,12 @@
+using System.Diagnostics;
 using ECommerce.FlashSaleOrchestrator.Application
     .Abstractions.Messaging;
 using ECommerce.FlashSaleOrchestrator.Application
     .AlternativeRecommendations;
 using ECommerce.FlashSaleOrchestrator.Application
     .IntegrationEvents.Inventory;
-using System.Diagnostics;
+using ECommerce.FlashSaleOrchestrator.Worker
+    .Observability;
 
 namespace ECommerce.FlashSaleOrchestrator.Worker
     .IntegrationEvents.Inventory;
@@ -43,12 +45,13 @@ public sealed class StockDepletedIntegrationEventHandler
         ArgumentNullException.ThrowIfNull(
             integrationEvent);
 
-        var orchestrationStartedAt =
+        var startedAt =
             Stopwatch.GetTimestamp();
 
         _logger.LogInformation(
             "Stock depleted integration event received. " +
-            "EventId: {EventId}, ProductId: {ProductId}, " +
+            "EventId: {EventId}, " +
+            "ProductId: {ProductId}, " +
             "CorrelationId: {CorrelationId}, " +
             "OccurredAtUtc: {OccurredAtUtc}",
             integrationEvent.EventId,
@@ -63,17 +66,24 @@ public sealed class StockDepletedIntegrationEventHandler
                 integrationEvent.CorrelationId,
                 cancellationToken);
 
-        var durationMs =
-            Stopwatch.GetElapsedTime(
-                    orchestrationStartedAt)
-                .TotalMilliseconds;
-
         if (plan is null)
         {
+            WorkerMetrics.StockDepletedProcessed.Add(
+                1,
+                new KeyValuePair<string, object?>(
+                    "outcome",
+                    "product_unresolved"));
+
+            var durationMs =
+                Stopwatch.GetElapsedTime(
+                        startedAt)
+                    .TotalMilliseconds;
+
             _logger.LogWarning(
                 "Recommendation plan was not created because " +
                 "the depleted product could not be resolved. " +
-                "EventId: {EventId}, ProductId: {ProductId}, " +
+                "EventId: {EventId}, " +
+                "ProductId: {ProductId}, " +
                 "CorrelationId: {CorrelationId}, " +
                 "DurationMs: {DurationMs}",
                 integrationEvent.EventId,
@@ -84,9 +94,31 @@ public sealed class StockDepletedIntegrationEventHandler
             return;
         }
 
+        var source =
+            NormalizeRecommendationSource(
+                plan.Source);
+
+        WorkerMetrics.StockDepletedProcessed.Add(
+            1,
+            new KeyValuePair<string, object?>(
+                "outcome",
+                "plan_created"));
+
+        WorkerMetrics.RecommendationPlansGenerated.Add(
+            1,
+            new KeyValuePair<string, object?>(
+                "source",
+                source));
+
+        var completedDurationMs =
+            Stopwatch.GetElapsedTime(
+                    startedAt)
+                .TotalMilliseconds;
+
         _logger.LogInformation(
             "Recommendation plan created. " +
-            "EventId: {EventId}, ProductId: {ProductId}, " +
+            "EventId: {EventId}, " +
+            "ProductId: {ProductId}, " +
             "CorrelationId: {CorrelationId}, " +
             "Source: {Source}, " +
             "RecommendationCount: {RecommendationCount}, " +
@@ -96,6 +128,25 @@ public sealed class StockDepletedIntegrationEventHandler
             plan.CorrelationId,
             plan.Source,
             plan.Result.Recommendations.Count,
-            durationMs);
+            completedDurationMs);
+    }
+
+    private static string NormalizeRecommendationSource(
+        AlternativeRecommendationSource source)
+    {
+        return source switch
+        {
+            AlternativeRecommendationSource.Cache =>
+                "cache",
+
+            AlternativeRecommendationSource.Llm =>
+                "llm",
+
+            AlternativeRecommendationSource.Deterministic =>
+                "deterministic",
+
+            _ =>
+                "unknown"
+        };
     }
 }

@@ -3,6 +3,8 @@
 using ECommerce.FlashSaleOrchestrator.Application
     .AlternativeRecommendations.SemanticCaching;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .Observability;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 
@@ -144,6 +146,12 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
                         cacheLookupStartedAt)
                     .TotalMilliseconds;
 
+            InfrastructureMetrics.SemanticCacheLookups.Add(
+                1,
+                new KeyValuePair<string, object?>(
+                    "status",
+                    "bypassed"));
+
             _logger.LogWarning(
                 exception,
                 "Semantic recommendation cache lookup was bypassed. " +
@@ -173,6 +181,12 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
                             cacheLookupStartedAt)
                         .TotalMilliseconds;
 
+                InfrastructureMetrics.SemanticCacheLookups.Add(
+                    1,
+                    new KeyValuePair<string, object?>(
+                        "status",
+                        "hit"));
+
                 _logger.LogInformation(
                     "Semantic recommendation cache hit. " +
                     "CorrelationId: {CorrelationId}, " +
@@ -198,6 +212,12 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
                     Stopwatch.GetElapsedTime(
                             cacheLookupStartedAt)
                         .TotalMilliseconds;
+
+                InfrastructureMetrics.SemanticCacheLookups.Add(
+                    1,
+                    new KeyValuePair<string, object?>(
+                        "status",
+                        "invalid"));
 
                 _logger.LogWarning(
                     exception,
@@ -244,6 +264,12 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
                 Stopwatch.GetElapsedTime(
                         cacheLookupStartedAt)
                     .TotalMilliseconds;
+
+            InfrastructureMetrics.SemanticCacheLookups.Add(
+                1,
+                new KeyValuePair<string, object?>(
+                    "status",
+                    "miss"));
 
             _logger.LogDebug(
                 "Semantic recommendation cache miss. " +
@@ -299,6 +325,9 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
         var generationStartedAt =
             Stopwatch.GetTimestamp();
 
+        InfrastructureMetrics.LlmRequests.Add(
+            1);
+
         try
         {
             var result =
@@ -315,6 +344,12 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
                 Stopwatch.GetElapsedTime(
                         generationStartedAt)
                     .TotalMilliseconds;
+
+            InfrastructureMetrics.LlmDuration.Record(
+                durationMs,
+                new KeyValuePair<string, object?>(
+                    "outcome",
+                    "success"));
 
             _logger.LogInformation(
                 "LLM alternative recommendation request completed. " +
@@ -334,6 +369,17 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
         {
+            var durationMs =
+                Stopwatch.GetElapsedTime(
+                        generationStartedAt)
+                    .TotalMilliseconds;
+
+            InfrastructureMetrics.LlmDuration.Record(
+                durationMs,
+                new KeyValuePair<string, object?>(
+                    "outcome",
+                    "cancelled"));
+
             throw;
         }
         catch (Exception exception)
@@ -342,6 +388,15 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
                 Stopwatch.GetElapsedTime(
                         generationStartedAt)
                     .TotalMilliseconds;
+
+            InfrastructureMetrics.LlmFailures.Add(
+                1);
+
+            InfrastructureMetrics.LlmDuration.Record(
+                durationMs,
+                new KeyValuePair<string, object?>(
+                    "outcome",
+                    "failure"));
 
             _logger.LogWarning(
                 exception,
