@@ -4,6 +4,7 @@ using ECommerce.FlashSaleOrchestrator.Application
     .AlternativeRecommendations;
 using ECommerce.FlashSaleOrchestrator.Application
     .IntegrationEvents.Inventory;
+using System.Diagnostics;
 
 namespace ECommerce.FlashSaleOrchestrator.Worker
     .IntegrationEvents.Inventory;
@@ -42,6 +43,9 @@ public sealed class StockDepletedIntegrationEventHandler
         ArgumentNullException.ThrowIfNull(
             integrationEvent);
 
+        var orchestrationStartedAt =
+            Stopwatch.GetTimestamp();
+
         _logger.LogInformation(
             "Stock depleted integration event received. " +
             "EventId: {EventId}, ProductId: {ProductId}, " +
@@ -59,16 +63,23 @@ public sealed class StockDepletedIntegrationEventHandler
                 integrationEvent.CorrelationId,
                 cancellationToken);
 
+        var durationMs =
+            Stopwatch.GetElapsedTime(
+                    orchestrationStartedAt)
+                .TotalMilliseconds;
+
         if (plan is null)
         {
             _logger.LogWarning(
                 "Recommendation plan was not created because " +
                 "the depleted product could not be resolved. " +
                 "EventId: {EventId}, ProductId: {ProductId}, " +
-                "CorrelationId: {CorrelationId}",
+                "CorrelationId: {CorrelationId}, " +
+                "DurationMs: {DurationMs}",
                 integrationEvent.EventId,
                 integrationEvent.ProductId,
-                integrationEvent.CorrelationId);
+                integrationEvent.CorrelationId,
+                durationMs);
 
             return;
         }
@@ -78,11 +89,13 @@ public sealed class StockDepletedIntegrationEventHandler
             "EventId: {EventId}, ProductId: {ProductId}, " +
             "CorrelationId: {CorrelationId}, " +
             "Source: {Source}, " +
-            "RecommendationCount: {RecommendationCount}",
+            "RecommendationCount: {RecommendationCount}, " +
+            "DurationMs: {DurationMs}",
             plan.EventId,
             plan.OriginalProductId,
             plan.CorrelationId,
             plan.Source,
-            plan.Result.Recommendations.Count);
+            plan.Result.Recommendations.Count,
+            durationMs);
     }
 }

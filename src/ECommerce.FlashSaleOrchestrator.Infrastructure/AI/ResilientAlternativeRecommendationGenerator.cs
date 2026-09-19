@@ -108,11 +108,11 @@ internal sealed class
             {
                 _logger.LogWarning(
                     exception,
-                    "Alternative recommendation generation failed. " +
-                    "LLM retry scheduled. " +
+                    "Alternative recommendation primary pipeline failed. " +
+                    "Retry scheduled. " +
                     "CorrelationId: {CorrelationId}, " +
-                    "DepletedProductId: {DepletedProductId}, " +
-                    "Attempt: {Attempt}, " +
+                    "ProductId: {ProductId}, " +
+                    "RetryCount: {RetryCount}, " +
                     "MaxAttempts: {MaxAttempts}",
                     request.CorrelationId,
                     request.DepletedProduct.ProductId,
@@ -127,13 +127,15 @@ internal sealed class
             {
                 _logger.LogWarning(
                     exception,
-                    "Alternative recommendation generation exhausted " +
-                    "LLM attempts. Deterministic fallback will be used. " +
+                    "Alternative recommendation primary pipeline exhausted " +
+                    "all attempts. Deterministic fallback will be used. " +
                     "CorrelationId: {CorrelationId}, " +
-                    "DepletedProductId: {DepletedProductId}, " +
+                    "ProductId: {ProductId}, " +
+                    "RetryCount: {RetryCount}, " +
                     "Attempts: {Attempts}",
                     request.CorrelationId,
                     request.DepletedProduct.ProductId,
+                    MaxAttempts - 1,
                     MaxAttempts);
             }
         }
