@@ -15,7 +15,8 @@ public static class
             this IServiceCollection services,
             string modelId,
             Uri endpoint,
-            string apiKey)
+            string apiKey,
+            TimeSpan requestTimeout)
     {
         ArgumentNullException.ThrowIfNull(
             services);
@@ -28,6 +29,14 @@ public static class
 
         ArgumentException.ThrowIfNullOrWhiteSpace(
             apiKey);
+
+        if (requestTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(requestTimeout),
+                requestTimeout,
+                "AI request timeout must be greater than zero.");
+        }
 
         if (!endpoint.IsAbsoluteUri ||
             (endpoint.Scheme != Uri.UriSchemeHttp &&
@@ -46,14 +55,21 @@ public static class
             apiKey: apiKey);
 #pragma warning restore SKEXP0010
 
+        services.AddSingleton(
+            new AlternativeRecommendationAiOptions(
+                requestTimeout));
+
         services.AddScoped<
             SemanticKernelAlternativeRecommendationGenerator>();
+
+        services.AddScoped<
+            TimeoutUncachedAlternativeRecommendationGenerator>();
 
         services.AddScoped<
             IUncachedAlternativeRecommendationGenerator>(
             serviceProvider =>
                 serviceProvider.GetRequiredService<
-                    SemanticKernelAlternativeRecommendationGenerator>());
+                    TimeoutUncachedAlternativeRecommendationGenerator>());
 
         services.AddScoped<
             CachedSemanticAlternativeRecommendationGenerator>();

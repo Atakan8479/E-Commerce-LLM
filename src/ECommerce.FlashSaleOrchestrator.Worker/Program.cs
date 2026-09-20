@@ -76,6 +76,25 @@ if (!Uri.TryCreate(
         "HTTP or HTTPS URI.");
 }
 
+var llmRequestTimeoutSecondsValue =
+    Environment.GetEnvironmentVariable(
+        "FLASHSALE_LLM_REQUEST_TIMEOUT_SECONDS");
+
+if (!int.TryParse(
+        llmRequestTimeoutSecondsValue,
+        out var llmRequestTimeoutSeconds) ||
+    llmRequestTimeoutSeconds <= 0)
+{
+    throw new InvalidOperationException(
+        "Environment variable " +
+        "'FLASHSALE_LLM_REQUEST_TIMEOUT_SECONDS' " +
+        "must contain a positive integer number of seconds.");
+}
+
+var llmRequestTimeout =
+    TimeSpan.FromSeconds(
+        llmRequestTimeoutSeconds);
+
 var openAiApiKey =
     Environment.GetEnvironmentVariable(
         "FLASHSALE_OPENAI_API_KEY");
@@ -179,7 +198,8 @@ builder.Services.AddSemanticRecommendationCache(
 builder.Services.AddAlternativeRecommendationAi(
     openAiModelId,
     openAiEndpoint,
-    openAiApiKey);
+    openAiApiKey,
+    llmRequestTimeout);
 
 builder.Services.AddSingleton(
     TimeProvider.System);
