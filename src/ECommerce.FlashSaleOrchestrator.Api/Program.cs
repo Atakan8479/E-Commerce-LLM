@@ -17,6 +17,8 @@ using ECommerce.FlashSaleOrchestrator.Infrastructure
     .Messaging.Kafka;
 using ECommerce.FlashSaleOrchestrator.Application
     .AlternativeRecommendations.GetRecommendationPlans;
+using ECommerce.FlashSaleOrchestrator.Api.HealthChecks;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
 var builder =
     WebApplication.CreateBuilder(args);
@@ -47,7 +49,14 @@ builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<
     GlobalExceptionHandler>();
 
-builder.Services.AddHealthChecks();
+builder.Services
+    .AddHealthChecks()
+    .AddCheck<SqlServerReadinessHealthCheck>(
+        "sql-server",
+        tags:
+        [
+            "ready"
+        ]);
 
 builder.Services.AddOpenApi();
 
@@ -142,7 +151,22 @@ app.UseHttpsRedirection();
 app.UseAuthorization();
 
 app.MapHealthChecks(
-    "/health");
+    "/health/live",
+    new HealthCheckOptions
+    {
+        Predicate =
+            _ => false
+    });
+
+app.MapHealthChecks(
+    "/health/ready",
+    new HealthCheckOptions
+    {
+        Predicate =
+            registration =>
+                registration.Tags.Contains(
+                    "ready")
+    });
 
 app.MapControllers();
 
