@@ -132,6 +132,44 @@ if (string.IsNullOrWhiteSpace(
         "localhost:6379";
 }
 
+var redisConnectTimeoutSecondsValue =
+    Environment.GetEnvironmentVariable(
+        "FLASHSALE_REDIS_CONNECT_TIMEOUT_SECONDS");
+
+if (!int.TryParse(
+        redisConnectTimeoutSecondsValue,
+        out var redisConnectTimeoutSeconds) ||
+    redisConnectTimeoutSeconds <= 0)
+{
+    throw new InvalidOperationException(
+        "Environment variable " +
+        "'FLASHSALE_REDIS_CONNECT_TIMEOUT_SECONDS' " +
+        "must contain a positive integer number of seconds.");
+}
+
+var redisConnectTimeout =
+    TimeSpan.FromSeconds(
+        redisConnectTimeoutSeconds);
+
+var redisOperationTimeoutSecondsValue =
+    Environment.GetEnvironmentVariable(
+        "FLASHSALE_REDIS_OPERATION_TIMEOUT_SECONDS");
+
+if (!int.TryParse(
+        redisOperationTimeoutSecondsValue,
+        out var redisOperationTimeoutSeconds) ||
+    redisOperationTimeoutSeconds <= 0)
+{
+    throw new InvalidOperationException(
+        "Environment variable " +
+        "'FLASHSALE_REDIS_OPERATION_TIMEOUT_SECONDS' " +
+        "must contain a positive integer number of seconds.");
+}
+
+var redisOperationTimeout =
+    TimeSpan.FromSeconds(
+        redisOperationTimeoutSeconds);
+
 var redisPassword =
     Environment.GetEnvironmentVariable(
         "REDIS_PASSWORD");
@@ -185,6 +223,8 @@ builder.Services.AddSemanticRecommendationEmbedding(
 builder.Services.AddSemanticRecommendationCache(
     redisEndpoint,
     redisPassword,
+    redisConnectTimeout,
+    redisOperationTimeout,
     semanticCacheIndexName,
     semanticCacheKeyPrefix,
     semanticEmbeddingDimensions,

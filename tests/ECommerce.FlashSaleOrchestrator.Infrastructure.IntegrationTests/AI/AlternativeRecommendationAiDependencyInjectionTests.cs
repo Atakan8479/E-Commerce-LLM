@@ -31,9 +31,15 @@ public sealed class
                 "127.0.0.1:6379",
             redisPassword:
                 "integration-test-password",
+            connectTimeout:
+                TimeSpan.FromSeconds(
+                    3),
+            operationTimeout:
+                TimeSpan.FromSeconds(
+                    2),
             indexName:
                 "integration-test:semantic-cache:idx",
-            keyPrefix:
+                    keyPrefix:
                 "integration-test:semantic-cache:",
             vectorDimensions:
                 3,
