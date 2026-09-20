@@ -6,22 +6,22 @@ namespace ECommerce.FlashSaleOrchestrator.Infrastructure
 
 public sealed class ApiHealthChecksTests
 {
+    private const string UnavailableSqlConnectionString =
+        "Server=127.0.0.1,65534;" +
+        "Database=Unavailable;" +
+        "User Id=sa;" +
+        "Password=integration-test-password;" +
+        "Encrypt=False;" +
+        "TrustServerCertificate=True;" +
+        "Connect Timeout=1;";
+
     [Fact]
     public async Task
         Live_ShouldReturnOk_WithoutCheckingSqlServer()
     {
-        const string unavailableConnectionString =
-            "Server=127.0.0.1,65534;" +
-            "Database=Unavailable;" +
-            "User Id=sa;" +
-            "Password=integration-test-password;" +
-            "Encrypt=False;" +
-            "TrustServerCertificate=True;" +
-            "Connect Timeout=1;";
-
         using var factory =
             new ApiWebApplicationFactory(
-                unavailableConnectionString);
+                UnavailableSqlConnectionString);
 
         using var client =
             CreateClient(
@@ -57,6 +57,27 @@ public sealed class ApiHealthChecksTests
 
         Assert.Equal(
             HttpStatusCode.OK,
+            response.StatusCode);
+    }
+
+    [Fact]
+    public async Task
+        Ready_ShouldReturnServiceUnavailable_WhenSqlServerIsUnavailable()
+    {
+        using var factory =
+            new ApiWebApplicationFactory(
+                UnavailableSqlConnectionString);
+
+        using var client =
+            CreateClient(
+                factory);
+
+        using var response =
+            await client.GetAsync(
+                "/health/ready");
+
+        Assert.Equal(
+            HttpStatusCode.ServiceUnavailable,
             response.StatusCode);
     }
 
