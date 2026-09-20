@@ -1,4 +1,7 @@
-﻿using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Resilience;
+﻿using ECommerce.FlashSaleOrchestrator.Application
+    .Abstractions.Resilience;
+using ECommerce.FlashSaleOrchestrator.Worker
+    .Observability;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -84,6 +87,12 @@ public sealed class IntegrationEventRetryExecutor
                 var delay =
                     CalculateDelay(
                         attempt);
+
+                WorkerMetrics.ConsumerRetries.Add(
+                    1,
+                    new KeyValuePair<string, object?>(
+                        "event_type",
+                        eventType));
 
                 _logger.LogWarning(
                     exception,

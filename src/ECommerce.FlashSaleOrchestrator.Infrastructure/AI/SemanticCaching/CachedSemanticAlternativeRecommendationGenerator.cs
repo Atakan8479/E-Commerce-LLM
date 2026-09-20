@@ -3,7 +3,10 @@
 using ECommerce.FlashSaleOrchestrator.Application
     .AlternativeRecommendations.SemanticCaching;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.AI;
+using ECommerce.FlashSaleOrchestrator.Infrastructure
+    .Observability;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure
     .AI.SemanticCaching;
@@ -109,6 +112,9 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
             _cacheProfile.CreateCompatibility(
                 representation.CandidateFingerprint);
 
+        var cacheLookupStartedAt =
+            Stopwatch.GetTimestamp();
+
         SemanticRecommendationEmbedding embedding;
         SemanticRecommendationCacheMatch? match;
 
@@ -135,11 +141,26 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
         }
         catch (Exception exception)
         {
+            var durationMs =
+                Stopwatch.GetElapsedTime(
+                        cacheLookupStartedAt)
+                    .TotalMilliseconds;
+
+            InfrastructureMetrics.SemanticCacheLookups.Add(
+                1,
+                new KeyValuePair<string, object?>(
+                    "status",
+                    "bypassed"));
+
             _logger.LogWarning(
                 exception,
                 "Semantic recommendation cache lookup was bypassed. " +
-                "CorrelationId: {CorrelationId}",
-                request.CorrelationId);
+                "CorrelationId: {CorrelationId}, " +
+                "CacheStatus: {CacheStatus}, " +
+                "DurationMs: {DurationMs}",
+                request.CorrelationId,
+                "Bypassed",
+                durationMs);
 
             return await GeneratePrimaryOutcomeAsync(
                 request,
@@ -155,14 +176,29 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
                         request,
                         match.Result);
 
+                var durationMs =
+                    Stopwatch.GetElapsedTime(
+                            cacheLookupStartedAt)
+                        .TotalMilliseconds;
+
+                InfrastructureMetrics.SemanticCacheLookups.Add(
+                    1,
+                    new KeyValuePair<string, object?>(
+                        "status",
+                        "hit"));
+
                 _logger.LogInformation(
                     "Semantic recommendation cache hit. " +
                     "CorrelationId: {CorrelationId}, " +
+                    "CacheStatus: {CacheStatus}, " +
                     "EntryId: {EntryId}, " +
-                    "SimilarityScore: {SimilarityScore}",
+                    "SimilarityScore: {SimilarityScore}, " +
+                    "DurationMs: {DurationMs}",
                     request.CorrelationId,
+                    "Hit",
                     match.EntryId,
-                    match.SimilarityScore);
+                    match.SimilarityScore,
+                    durationMs);
 
                 return new AlternativeRecommendationGenerationOutcome(
                     match.Result,
@@ -172,13 +208,28 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
                 AlternativeRecommendationValidationException
                 exception)
             {
+                var durationMs =
+                    Stopwatch.GetElapsedTime(
+                            cacheLookupStartedAt)
+                        .TotalMilliseconds;
+
+                InfrastructureMetrics.SemanticCacheLookups.Add(
+                    1,
+                    new KeyValuePair<string, object?>(
+                        "status",
+                        "invalid"));
+
                 _logger.LogWarning(
                     exception,
                     "Semantic recommendation cache entry is no longer valid. " +
                     "CorrelationId: {CorrelationId}, " +
-                    "EntryId: {EntryId}",
+                    "CacheStatus: {CacheStatus}, " +
+                    "EntryId: {EntryId}, " +
+                    "DurationMs: {DurationMs}",
                     request.CorrelationId,
-                    match.EntryId);
+                    "Invalid",
+                    match.EntryId,
+                    durationMs);
 
                 try
                 {
@@ -209,10 +260,25 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
         }
         else
         {
+            var durationMs =
+                Stopwatch.GetElapsedTime(
+                        cacheLookupStartedAt)
+                    .TotalMilliseconds;
+
+            InfrastructureMetrics.SemanticCacheLookups.Add(
+                1,
+                new KeyValuePair<string, object?>(
+                    "status",
+                    "miss"));
+
             _logger.LogDebug(
                 "Semantic recommendation cache miss. " +
-                "CorrelationId: {CorrelationId}",
-                request.CorrelationId);
+                "CorrelationId: {CorrelationId}, " +
+                "CacheStatus: {CacheStatus}, " +
+                "DurationMs: {DurationMs}",
+                request.CorrelationId,
+                "Miss",
+                durationMs);
         }
 
         var outcome =
@@ -256,18 +322,93 @@ internal sealed class CachedSemanticAlternativeRecommendationGenerator
             AlternativeRecommendationRequest request,
             CancellationToken cancellationToken)
     {
-        var result =
-            await _primaryGenerator.GenerateAsync(
-                request,
-                cancellationToken);
+        var generationStartedAt =
+            Stopwatch.GetTimestamp();
 
-        AlternativeRecommendationResultValidator
-            .Validate(
-                request,
-                result);
+        InfrastructureMetrics.LlmRequests.Add(
+            1);
 
-        return new AlternativeRecommendationGenerationOutcome(
-            result,
-            AlternativeRecommendationSource.Llm);
+        try
+        {
+            var result =
+                await _primaryGenerator.GenerateAsync(
+                    request,
+                    cancellationToken);
+
+            AlternativeRecommendationResultValidator
+                .Validate(
+                    request,
+                    result);
+
+            var durationMs =
+                Stopwatch.GetElapsedTime(
+                        generationStartedAt)
+                    .TotalMilliseconds;
+
+            InfrastructureMetrics.LlmDuration.Record(
+                durationMs,
+                new KeyValuePair<string, object?>(
+                    "outcome",
+                    "success"));
+
+            _logger.LogInformation(
+                "LLM alternative recommendation request completed. " +
+                "CorrelationId: {CorrelationId}, " +
+                "ProductId: {ProductId}, " +
+                "RecommendationCount: {RecommendationCount}, " +
+                "DurationMs: {DurationMs}",
+                request.CorrelationId,
+                request.DepletedProduct.ProductId,
+                result.Recommendations.Count,
+                durationMs);
+
+            return new AlternativeRecommendationGenerationOutcome(
+                result,
+                AlternativeRecommendationSource.Llm);
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            var durationMs =
+                Stopwatch.GetElapsedTime(
+                        generationStartedAt)
+                    .TotalMilliseconds;
+
+            InfrastructureMetrics.LlmDuration.Record(
+                durationMs,
+                new KeyValuePair<string, object?>(
+                    "outcome",
+                    "cancelled"));
+
+            throw;
+        }
+        catch (Exception exception)
+        {
+            var durationMs =
+                Stopwatch.GetElapsedTime(
+                        generationStartedAt)
+                    .TotalMilliseconds;
+
+            InfrastructureMetrics.LlmFailures.Add(
+                1);
+
+            InfrastructureMetrics.LlmDuration.Record(
+                durationMs,
+                new KeyValuePair<string, object?>(
+                    "outcome",
+                    "failure"));
+
+            _logger.LogWarning(
+                exception,
+                "LLM alternative recommendation request failed. " +
+                "CorrelationId: {CorrelationId}, " +
+                "ProductId: {ProductId}, " +
+                "DurationMs: {DurationMs}",
+                request.CorrelationId,
+                request.DepletedProduct.ProductId,
+                durationMs);
+
+            throw;
+        }
     }
 }

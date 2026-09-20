@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Diagnostics;
 
 namespace ECommerce.FlashSaleOrchestrator.Worker.BackgroundServices;
 
@@ -192,9 +193,18 @@ public sealed class StockDepletedConsumerWorker
                                        correlationId,
 
                                    ["EventId"] =
-                                       integrationEvent.EventId
+                                       integrationEvent.EventId,
+
+                                   ["ProductId"] =
+                                       integrationEvent.ProductId,
+
+                                   ["EventType"] =
+                                       integrationEvent.EventType
                                }))
                     {
+                        var processingStartedAt =
+                            Stopwatch.GetTimestamp();
+
                         try
                         {
                             var processingResult =
@@ -211,18 +221,23 @@ public sealed class StockDepletedConsumerWorker
                             _consumer.Commit(
                                 consumeResult);
 
+                            var durationMs =
+                                Stopwatch.GetElapsedTime(
+                                        processingStartedAt)
+                                    .TotalMilliseconds;
+
                             _logger.LogInformation(
                                 "Stock depleted event acknowledged. " +
-                                "EventId: {EventId}, " +
                                 "ProcessingResult: {ProcessingResult}, " +
                                 "Topic: {Topic}, " +
                                 "Partition: {Partition}, " +
-                                "Offset: {Offset}",
-                                integrationEvent.EventId,
+                                "Offset: {Offset}, " +
+                                "DurationMs: {DurationMs}",
                                 processingResult,
                                 consumeResult.Topic,
                                 consumeResult.Partition,
-                                consumeResult.Offset);
+                                consumeResult.Offset,
+                                durationMs);
                         }
                         catch (OperationCanceledException)
                             when (stoppingToken.IsCancellationRequested)
@@ -241,18 +256,24 @@ public sealed class StockDepletedConsumerWorker
                             _consumer.Commit(
                                 consumeResult);
 
+                            var durationMs =
+                                Stopwatch.GetElapsedTime(
+                                        processingStartedAt)
+                                    .TotalMilliseconds;
+
                             _logger.LogWarning(
+                                processingException,
                                 "Stock depleted event moved to " +
                                 "dead-letter topic and original " +
                                 "offset committed. " +
-                                "EventId: {EventId}, " +
                                 "Topic: {Topic}, " +
                                 "Partition: {Partition}, " +
-                                "Offset: {Offset}",
-                                integrationEvent.EventId,
+                                "Offset: {Offset}, " +
+                                "DurationMs: {DurationMs}",
                                 consumeResult.Topic,
                                 consumeResult.Partition,
-                                consumeResult.Offset);
+                                consumeResult.Offset,
+                                durationMs);
                         }
                     }
                 }

@@ -14,6 +14,8 @@ public static class
             this IServiceCollection services,
             string redisEndpoint,
             string redisPassword,
+            TimeSpan connectTimeout,
+            TimeSpan operationTimeout,
             string indexName,
             string keyPrefix,
             int vectorDimensions,
@@ -27,11 +29,12 @@ public static class
         ArgumentNullException.ThrowIfNull(
             services);
 
-        ArgumentException.ThrowIfNullOrWhiteSpace(
-            redisEndpoint);
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(
-            redisPassword);
+        var redisConfiguration =
+            CreateRedisConfiguration(
+                redisEndpoint,
+                redisPassword,
+                connectTimeout,
+                operationTimeout);
 
         var redisOptions =
             new RedisSemanticRecommendationCacheOptions(
@@ -47,19 +50,6 @@ public static class
                 schemaVersion,
                 semanticCacheVersion,
                 embeddingProfileVersion);
-
-        var redisConfiguration =
-            new ConfigurationOptions
-            {
-                Password =
-                    redisPassword,
-
-                AbortOnConnectFail =
-                    false
-            };
-
-        redisConfiguration.EndPoints.Add(
-            redisEndpoint);
 
         services.AddSingleton(
             redisOptions);
@@ -88,5 +78,73 @@ public static class
             RedisSemanticRecommendationCache>();
 
         return services;
+    }
+
+    internal static ConfigurationOptions
+        CreateRedisConfiguration(
+            string redisEndpoint,
+            string redisPassword,
+            TimeSpan connectTimeout,
+            TimeSpan operationTimeout)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            redisEndpoint);
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            redisPassword);
+
+        var connectTimeoutMilliseconds =
+            ToTimeoutMilliseconds(
+                connectTimeout,
+                nameof(connectTimeout));
+
+        var operationTimeoutMilliseconds =
+            ToTimeoutMilliseconds(
+                operationTimeout,
+                nameof(operationTimeout));
+
+        var redisConfiguration =
+            new ConfigurationOptions
+            {
+                Password =
+                    redisPassword,
+
+                AbortOnConnectFail =
+                    false,
+
+                ConnectTimeout =
+                    connectTimeoutMilliseconds,
+
+                AsyncTimeout =
+                    operationTimeoutMilliseconds,
+
+                SyncTimeout =
+                    operationTimeoutMilliseconds
+            };
+
+        redisConfiguration.EndPoints.Add(
+            redisEndpoint);
+
+        return redisConfiguration;
+    }
+
+    private static int ToTimeoutMilliseconds(
+        TimeSpan timeout,
+        string parameterName)
+    {
+        if (timeout <= TimeSpan.Zero ||
+            timeout.TotalMilliseconds >
+            int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                timeout,
+                "Redis timeout must be greater than zero " +
+                "and fit within the supported millisecond range.");
+        }
+
+        return checked(
+            (int)Math.Ceiling(
+                timeout.TotalMilliseconds));
     }
 }

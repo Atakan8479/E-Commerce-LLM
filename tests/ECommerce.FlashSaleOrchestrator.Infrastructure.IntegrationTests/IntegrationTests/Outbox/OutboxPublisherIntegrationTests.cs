@@ -14,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using System.Text;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Observability;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure.IntegrationTests.Outbox;
 
@@ -292,7 +293,8 @@ public sealed class OutboxPublisherIntegrationTests
             new OutboxProcessor(
                 context,
                 new StockDepletedOutboxMessageMapper(),
-                new ThrowingEventPublisher());
+                new ThrowingEventPublisher(),
+                NullLogger<OutboxProcessor>.Instance);
 
         await Assert.ThrowsAsync<
             InvalidOperationException>(

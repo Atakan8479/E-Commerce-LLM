@@ -31,9 +31,15 @@ public sealed class
                 "127.0.0.1:6379",
             redisPassword:
                 "integration-test-password",
+            connectTimeout:
+                TimeSpan.FromSeconds(
+                    3),
+            operationTimeout:
+                TimeSpan.FromSeconds(
+                    2),
             indexName:
                 "integration-test:semantic-cache:idx",
-            keyPrefix:
+                    keyPrefix:
                 "integration-test:semantic-cache:",
             vectorDimensions:
                 3,
@@ -73,7 +79,10 @@ public sealed class
                 new Uri(
                     "http://localhost:11434/v1"),
             apiKey:
-                "integration-test-api-key");
+                "integration-test-api-key",
+            requestTimeout:
+                TimeSpan.FromSeconds(
+                    30));
 
         Assert.Contains(
             services,
@@ -175,7 +184,7 @@ public sealed class
             executor);
 
         Assert.IsType<
-            SemanticKernelAlternativeRecommendationGenerator>(
+            TimeoutUncachedAlternativeRecommendationGenerator>(
             uncachedGenerator);
 
         Assert.NotNull(
