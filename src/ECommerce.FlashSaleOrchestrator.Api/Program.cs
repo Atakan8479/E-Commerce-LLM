@@ -52,7 +52,8 @@ builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi();
 
 builder.Services.AddInfrastructure(
-    sqlConnectionString);
+    sqlConnectionString,
+    enableSqlRetryOnFailure: true);
 
 builder.Services.AddScoped<
     IQueryHandler<
