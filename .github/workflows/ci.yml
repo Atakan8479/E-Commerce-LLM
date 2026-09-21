@@ -118,6 +118,39 @@ jobs:
           --configuration Release
           --no-build
 
+      - name: NuGet vulnerability gate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          dotnet restore \
+            ECommerce.FlashSaleOrchestrator.slnx \
+            --force-evaluate \
+            -p:NuGetAudit=true \
+            -p:NuGetAuditMode=all \
+            -p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905
+
+          dotnet package list \
+            --project ECommerce.FlashSaleOrchestrator.slnx \
+            --vulnerable \
+            --include-transitive \
+            --no-restore
+
+      - name: Docker image build verification
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker build \
+            --file src/ECommerce.FlashSaleOrchestrator.Api/Dockerfile \
+            --tag flashsale-api:ci \
+            .
+
+          docker build \
+            --file src/ECommerce.FlashSaleOrchestrator.Worker/Dockerfile \
+            --tag flashsale-worker:ci \
+            .
+
       - name: Show dependency logs on failure
         if: failure()
         run: >
