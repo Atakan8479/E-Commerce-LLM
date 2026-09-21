@@ -7,7 +7,7 @@ services:
 
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD}"
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:?MSSQL_SA_PASSWORD must be set}"
 
     ports:
       - "1433:1433"
@@ -106,10 +106,10 @@ services:
       - --appendonly
       - "yes"
       - --requirepass
-      - "${REDIS_PASSWORD}"
+      - "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}"
 
     environment:
-      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}"
 
     ports:
       - "127.0.0.1:6379:6379"
@@ -127,6 +127,103 @@ services:
       timeout: 5s
       retries: 20
       start_period: 5s
+
+
+  migrate:
+    image: flashsale-api:local
+
+    build:
+      context: .
+      dockerfile: src/ECommerce.FlashSaleOrchestrator.Api/Dockerfile
+
+    container_name: flashsale-migrate
+
+    command:
+      - "--migrate"
+
+    environment:
+      FLASHSALE_SQL_CONNECTION: >-
+        Server=sqlserver,1433;Database=FlashSaleOrchestrator;User Id=sa;Password=${MSSQL_SA_PASSWORD:?MSSQL_SA_PASSWORD must be set};Encrypt=True;TrustServerCertificate=True
+
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+
+    restart: "no"
+
+
+  api:
+    image: flashsale-api:local
+
+    build:
+      context: .
+      dockerfile: src/ECommerce.FlashSaleOrchestrator.Api/Dockerfile
+
+    container_name: flashsale-api
+
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+
+      FLASHSALE_SQL_CONNECTION: >-
+        Server=sqlserver,1433;Database=FlashSaleOrchestrator;User Id=sa;Password=${MSSQL_SA_PASSWORD:?MSSQL_SA_PASSWORD must be set};Encrypt=True;TrustServerCertificate=True
+
+      Kafka__BootstrapServers: "redpanda:9092"
+
+    ports:
+      - "5185:8080"
+
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+      redpanda-init:
+        condition: service_completed_successfully
+
+
+  worker:
+    image: flashsale-worker:local
+
+    build:
+      context: .
+      dockerfile: src/ECommerce.FlashSaleOrchestrator.Worker/Dockerfile
+
+    container_name: flashsale-worker
+
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+
+      FLASHSALE_SQL_CONNECTION: >-
+        Server=sqlserver,1433;Database=FlashSaleOrchestrator;User Id=sa;Password=${MSSQL_SA_PASSWORD:?MSSQL_SA_PASSWORD must be set};Encrypt=True;TrustServerCertificate=True
+
+      Kafka__BootstrapServers: "redpanda:9092"
+
+      FLASHSALE_OPENAI_MODEL_ID: "${FLASHSALE_OPENAI_MODEL_ID:?FLASHSALE_OPENAI_MODEL_ID must be set}"
+      FLASHSALE_OPENAI_ENDPOINT: "${FLASHSALE_OPENAI_ENDPOINT:?FLASHSALE_OPENAI_ENDPOINT must be set}"
+      FLASHSALE_LLM_REQUEST_TIMEOUT_SECONDS: "${FLASHSALE_LLM_REQUEST_TIMEOUT_SECONDS:-30}"
+      FLASHSALE_OPENAI_API_KEY: "${FLASHSALE_OPENAI_API_KEY:?FLASHSALE_OPENAI_API_KEY must be set}"
+
+      FLASHSALE_EMBEDDING_MODEL_ID: "${FLASHSALE_EMBEDDING_MODEL_ID:?FLASHSALE_EMBEDDING_MODEL_ID must be set}"
+
+      FLASHSALE_REDIS_ENDPOINT: "redis:6379"
+      FLASHSALE_REDIS_CONNECT_TIMEOUT_SECONDS: "${FLASHSALE_REDIS_CONNECT_TIMEOUT_SECONDS:-5}"
+      FLASHSALE_REDIS_OPERATION_TIMEOUT_SECONDS: "${FLASHSALE_REDIS_OPERATION_TIMEOUT_SECONDS:-5}"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}"
+
+    ports:
+      - "8081:8081"
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+      redpanda-init:
+        condition: service_completed_successfully
+
+      redis:
+        condition: service_healthy
 
 
 volumes:
