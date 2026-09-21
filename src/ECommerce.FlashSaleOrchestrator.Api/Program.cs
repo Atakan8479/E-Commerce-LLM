@@ -19,6 +19,8 @@ using ECommerce.FlashSaleOrchestrator.Application
     .AlternativeRecommendations.GetRecommendationPlans;
 using ECommerce.FlashSaleOrchestrator.Api.HealthChecks;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 var builder =
     WebApplication.CreateBuilder(args);
@@ -135,6 +137,24 @@ builder.Services.AddHostedService<
 
 var app =
     builder.Build();
+
+if (args.Contains(
+        "--migrate",
+        StringComparer.OrdinalIgnoreCase))
+{
+    await using var scope =
+        app.Services.CreateAsyncScope();
+
+    var dbContext =
+        scope.ServiceProvider
+            .GetRequiredService<
+                FlashSaleOrchestratorDbContext>();
+
+    await dbContext.Database
+        .MigrateAsync();
+
+    return;
+}
 
 if (app.Environment.IsDevelopment())
 {

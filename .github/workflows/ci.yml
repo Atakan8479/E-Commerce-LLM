@@ -1,0 +1,168 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore ECommerce.FlashSaleOrchestrator.slnx
+
+      - name: Build
+        run: >
+          dotnet build
+          ECommerce.FlashSaleOrchestrator.slnx
+          --configuration Release
+          --no-restore
+
+      - name: Prepare integration test environment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sql_password="CiSql!9$(openssl rand -hex 16)"
+          redis_password="CiRedis!9$(openssl rand -hex 16)"
+
+          echo "::add-mask::$sql_password"
+          echo "::add-mask::$redis_password"
+
+          {
+            echo "MSSQL_SA_PASSWORD=$sql_password"
+            echo "REDIS_PASSWORD=$redis_password"
+            echo "FLASHSALE_SQL_CONNECTION=Server=localhost,1433;Database=FlashSaleOrchestrator;User Id=sa;Password=$sql_password;Encrypt=True;TrustServerCertificate=True"
+            echo "FLASHSALE_KAFKA_BOOTSTRAP_SERVERS=localhost:19092"
+
+            echo "FLASHSALE_OPENAI_MODEL_ID=ci-not-used"
+            echo "FLASHSALE_OPENAI_ENDPOINT=http://localhost:11434/v1"
+            echo "FLASHSALE_LLM_REQUEST_TIMEOUT_SECONDS=30"
+            echo "FLASHSALE_OPENAI_API_KEY=ci-not-used"
+            echo "FLASHSALE_EMBEDDING_MODEL_ID=ci-not-used"
+
+            echo "FLASHSALE_REDIS_CONNECT_TIMEOUT_SECONDS=5"
+            echo "FLASHSALE_REDIS_OPERATION_TIMEOUT_SECONDS=5"
+          } >> "$GITHUB_ENV"
+
+      - name: Start integration dependencies
+        run: >
+          docker compose up
+          -d
+          sqlserver
+          redpanda
+          redis
+
+      - name: Wait for integration dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          wait_for_health() {
+            local service="$1"
+            local container_id
+
+            container_id="$(docker compose ps -q "$service")"
+
+            if [ -z "$container_id" ]; then
+              echo "Container for service '$service' was not created."
+              exit 1
+            fi
+
+            for attempt in {1..90}; do
+              status="$(
+                docker inspect \
+                  --format '{{.State.Health.Status}}' \
+                  "$container_id"
+              )"
+
+              if [ "$status" = "healthy" ]; then
+                echo "$service is healthy."
+                return 0
+              fi
+
+              sleep 2
+            done
+
+            echo "Timed out waiting for $service."
+            docker compose logs "$service" --no-color
+            exit 1
+          }
+
+          wait_for_health sqlserver
+          wait_for_health redpanda
+          wait_for_health redis
+
+          docker compose ps
+
+      - name: Full regression
+        run: >
+          dotnet test
+          ECommerce.FlashSaleOrchestrator.slnx
+          --configuration Release
+          --no-build
+
+      - name: NuGet vulnerability gate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          dotnet restore \
+            ECommerce.FlashSaleOrchestrator.slnx \
+            --force-evaluate \
+            -p:NuGetAudit=true \
+            -p:NuGetAuditMode=all \
+            -p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905
+
+          dotnet package list \
+            --project ECommerce.FlashSaleOrchestrator.slnx \
+            --vulnerable \
+            --include-transitive \
+            --no-restore
+
+      - name: Docker image build verification
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker build \
+            --file src/ECommerce.FlashSaleOrchestrator.Api/Dockerfile \
+            --tag flashsale-api:ci \
+            .
+
+          docker build \
+            --file src/ECommerce.FlashSaleOrchestrator.Worker/Dockerfile \
+            --tag flashsale-worker:ci \
+            .
+
+      - name: Show dependency logs on failure
+        if: failure()
+        run: >
+          docker compose logs
+          sqlserver
+          redpanda
+          redis
+          --no-color
+
+      - name: Stop integration dependencies
+        if: always()
+        run: >
+          docker compose down
+          -v
+          --remove-orphans
