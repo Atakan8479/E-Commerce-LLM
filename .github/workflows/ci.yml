@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-process-local-tests:
+    name: Build and process-local tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore ECommerce.FlashSaleOrchestrator.slnx
+
+      - name: Build
+        run: >
+          dotnet build
+          ECommerce.FlashSaleOrchestrator.slnx
+          --configuration Release
+          --no-restore
+
+      - name: Domain tests
+        run: >
+          dotnet test
+          tests/ECommerce.FlashSaleOrchestrator.Domain.Tests/ECommerce.FlashSaleOrchestrator.Domain.Tests.csproj
+          --configuration Release
+          --no-build
+
+      - name: Application tests
+        run: >
+          dotnet test
+          tests/ECommerce.FlashSaleOrchestrator.Application.Tests/ECommerce.FlashSaleOrchestrator.Application.Tests.csproj
+          --configuration Release
+          --no-build
+
+      - name: Worker tests
+        run: >
+          dotnet test
+          tests/ECommerce.FlashSaleOrchestrator.Worker.Tests/ECommerce.FlashSaleOrchestrator.Worker.Tests.csproj
+          --configuration Release
+          --no-build
+
+      - name: Architecture tests
+        run: >
+          dotnet test
+          tests/ECommerce.FlashSaleOrchestrator.Architecture.Tests/ECommerce.FlashSaleOrchestrator.Architecture.Tests.csproj
+          --configuration Release
+          --no-build
