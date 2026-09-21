@@ -10,10 +10,10 @@ permissions:
   contents: read
 
 jobs:
-  build-and-process-local-tests:
-    name: Build and process-local tests
+  build-and-test:
+    name: Build and test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -34,30 +34,102 @@ jobs:
           --configuration Release
           --no-restore
 
-      - name: Domain tests
+      - name: Prepare integration test environment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sql_password="CiSql!9$(openssl rand -hex 16)"
+          redis_password="CiRedis!9$(openssl rand -hex 16)"
+
+          echo "::add-mask::$sql_password"
+          echo "::add-mask::$redis_password"
+
+          {
+            echo "MSSQL_SA_PASSWORD=$sql_password"
+            echo "REDIS_PASSWORD=$redis_password"
+            echo "FLASHSALE_SQL_CONNECTION=Server=localhost,1433;Database=FlashSaleOrchestrator;User Id=sa;Password=$sql_password;Encrypt=True;TrustServerCertificate=True"
+            echo "FLASHSALE_KAFKA_BOOTSTRAP_SERVERS=localhost:19092"
+
+            echo "FLASHSALE_OPENAI_MODEL_ID=ci-not-used"
+            echo "FLASHSALE_OPENAI_ENDPOINT=http://localhost:11434/v1"
+            echo "FLASHSALE_LLM_REQUEST_TIMEOUT_SECONDS=30"
+            echo "FLASHSALE_OPENAI_API_KEY=ci-not-used"
+            echo "FLASHSALE_EMBEDDING_MODEL_ID=ci-not-used"
+
+            echo "FLASHSALE_REDIS_CONNECT_TIMEOUT_SECONDS=5"
+            echo "FLASHSALE_REDIS_OPERATION_TIMEOUT_SECONDS=5"
+          } >> "$GITHUB_ENV"
+
+      - name: Start integration dependencies
+        run: >
+          docker compose up
+          -d
+          sqlserver
+          redpanda
+          redis
+
+      - name: Wait for integration dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          wait_for_health() {
+            local service="$1"
+            local container_id
+
+            container_id="$(docker compose ps -q "$service")"
+
+            if [ -z "$container_id" ]; then
+              echo "Container for service '$service' was not created."
+              exit 1
+            fi
+
+            for attempt in {1..90}; do
+              status="$(
+                docker inspect \
+                  --format '{{.State.Health.Status}}' \
+                  "$container_id"
+              )"
+
+              if [ "$status" = "healthy" ]; then
+                echo "$service is healthy."
+                return 0
+              fi
+
+              sleep 2
+            done
+
+            echo "Timed out waiting for $service."
+            docker compose logs "$service" --no-color
+            exit 1
+          }
+
+          wait_for_health sqlserver
+          wait_for_health redpanda
+          wait_for_health redis
+
+          docker compose ps
+
+      - name: Full regression
         run: >
           dotnet test
-          tests/ECommerce.FlashSaleOrchestrator.Domain.Tests/ECommerce.FlashSaleOrchestrator.Domain.Tests.csproj
+          ECommerce.FlashSaleOrchestrator.slnx
           --configuration Release
           --no-build
 
-      - name: Application tests
+      - name: Show dependency logs on failure
+        if: failure()
         run: >
-          dotnet test
-          tests/ECommerce.FlashSaleOrchestrator.Application.Tests/ECommerce.FlashSaleOrchestrator.Application.Tests.csproj
-          --configuration Release
-          --no-build
+          docker compose logs
+          sqlserver
+          redpanda
+          redis
+          --no-color
 
-      - name: Worker tests
+      - name: Stop integration dependencies
+        if: always()
         run: >
-          dotnet test
-          tests/ECommerce.FlashSaleOrchestrator.Worker.Tests/ECommerce.FlashSaleOrchestrator.Worker.Tests.csproj
-          --configuration Release
-          --no-build
-
-      - name: Architecture tests
-        run: >
-          dotnet test
-          tests/ECommerce.FlashSaleOrchestrator.Architecture.Tests/ECommerce.FlashSaleOrchestrator.Architecture.Tests.csproj
-          --configuration Release
-          --no-build
+          docker compose down
+          -v
+          --remove-orphans
