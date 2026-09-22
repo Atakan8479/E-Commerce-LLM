@@ -3,10 +3,10 @@
 using ECommerce.FlashSaleOrchestrator.Application
     .Abstractions.Messaging;
 using ECommerce.FlashSaleOrchestrator.Application
-    .Abstractions.Observability;
-using ECommerce.FlashSaleOrchestrator.Application
     .Products.GetProduct;
 using Microsoft.AspNetCore.Mvc;
+using ECommerce.FlashSaleOrchestrator.Api
+    .ExceptionHandling;
 
 namespace ECommerce.FlashSaleOrchestrator.Api
     .Controllers;
@@ -23,24 +23,15 @@ public sealed class ProductsController
         GetProductQuery,
         ProductResult?> _getProductHandler;
 
-    private readonly ICorrelationContext
-        _correlationContext;
-
     public ProductsController(
         IQueryHandler<
             GetProductQuery,
-            ProductResult?> getProductHandler,
-        ICorrelationContext correlationContext)
+            ProductResult?> getProductHandler)
     {
         _getProductHandler =
             getProductHandler
             ?? throw new ArgumentNullException(
                 nameof(getProductHandler));
-
-        _correlationContext =
-            correlationContext
-            ?? throw new ArgumentNullException(
-                nameof(correlationContext));
     }
 
     [HttpGet("{productId}")]
@@ -66,18 +57,11 @@ public sealed class ProductsController
 
         if (result is null)
         {
-            var problemDetails =
-                CreateProductNotFoundProblemDetails(
-                    productId);
-
-            var notFoundResult =
-                new NotFoundObjectResult(
-                    problemDetails);
-
-            notFoundResult.ContentTypes.Add(
-                "application/problem+json");
-
-            return notFoundResult;
+            return ApiProblemDetailsFactory.CreateNotFound(
+                HttpContext,
+                "Product not found.",
+                ProductNotFoundErrorCode,
+                $"Product '{productId}' was not found.");
         }
 
         return Ok(
@@ -85,36 +69,5 @@ public sealed class ProductsController
                 result.ProductId,
                 result.Name,
                 result.Category));
-    }
-
-    private ProblemDetails
-        CreateProductNotFoundProblemDetails(
-            Guid productId)
-    {
-        var problemDetails =
-            new ProblemDetails
-            {
-                Status =
-                    StatusCodes.Status404NotFound,
-                Title =
-                    "Product not found.",
-                Detail =
-                    $"Product '{productId}' was not found.",
-                Type =
-                    $"urn:flashsale:error:" +
-                    ProductNotFoundErrorCode,
-                Instance =
-                    HttpContext.Request.Path
-            };
-
-        problemDetails.Extensions[
-            "errorCode"] =
-            ProductNotFoundErrorCode;
-
-        problemDetails.Extensions[
-            "correlationId"] =
-            _correlationContext.CorrelationId;
-
-        return problemDetails;
     }
 }

@@ -117,7 +117,7 @@ public sealed class GlobalExceptionHandler
                     StatusCodes.Status404NotFound,
                     "Inventory item not found.",
                     "inventory-item-not-found",
-                    exception.Message),
+                    "The requested inventory item was not found."),
 
             InventoryConcurrencyException =>
                 new ErrorDescriptor(
@@ -132,14 +132,14 @@ public sealed class GlobalExceptionHandler
                     StatusCodes.Status409Conflict,
                     "Insufficient stock.",
                     "insufficient-stock",
-                    exception.Message),
+                    "The requested quantity is not available."),
 
             ArgumentOutOfRangeException =>
                 new ErrorDescriptor(
                     StatusCodes.Status400BadRequest,
                     "Invalid request.",
                     "invalid-request",
-                    exception.Message),
+                    "The request contains an invalid value."),
 
             ArgumentException
                 when exception is not
@@ -148,7 +148,7 @@ public sealed class GlobalExceptionHandler
                     StatusCodes.Status400BadRequest,
                     "Invalid request.",
                     "invalid-request",
-                    exception.Message),
+                    "The request contains an invalid value."),
 
             _ =>
                 new ErrorDescriptor(
