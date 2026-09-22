@@ -21,6 +21,8 @@ using ECommerce.FlashSaleOrchestrator.Api.HealthChecks;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using ECommerce.FlashSaleOrchestrator.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using ECommerce.FlashSaleOrchestrator.Application
+    .Catalog.GetCatalog;
 
 var builder =
     WebApplication.CreateBuilder(args);
@@ -95,6 +97,12 @@ builder.Services.AddScoped<
         GetRecommendationPlansByCorrelationIdQuery,
         IReadOnlyList<RecommendationPlanResult>>,
     GetRecommendationPlansByCorrelationIdQueryHandler>();
+
+builder.Services.AddScoped<
+    IQueryHandler<
+        GetCatalogQuery,
+        IReadOnlyList<CatalogItemResult>>,
+    GetCatalogQueryHandler>();
 
 builder.Services
     .AddOptions<OutboxPublisherOptions>()

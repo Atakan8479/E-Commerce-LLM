@@ -105,6 +105,10 @@ public static class DependencyInjection
             IProductRepository,
             ProductRepository>();
 
+        services.AddScoped<
+            ICatalogReadRepository,
+            CatalogReadRepository>();
+
         return services;
     }
 }
