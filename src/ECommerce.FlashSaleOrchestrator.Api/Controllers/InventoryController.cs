@@ -9,6 +9,8 @@ using ECommerce.FlashSaleOrchestrator.Application
 using ECommerce.FlashSaleOrchestrator.Application
     .Inventory.GetInventory;
 using Microsoft.AspNetCore.Mvc;
+using ECommerce.FlashSaleOrchestrator.Api
+    .ExceptionHandling;
 
 namespace ECommerce.FlashSaleOrchestrator.Api
     .Controllers;
@@ -80,18 +82,12 @@ public sealed class InventoryController
 
         if (result is null)
         {
-            var problemDetails =
-                CreateInventoryItemNotFoundProblemDetails(
-                    productId);
-
-            var notFoundResult =
-                new NotFoundObjectResult(
-                    problemDetails);
-
-            notFoundResult.ContentTypes.Add(
-                "application/problem+json");
-
-            return notFoundResult;
+            return ApiProblemDetailsFactory.CreateNotFound(
+                HttpContext,
+                "Inventory item not found.",
+                InventoryItemNotFoundErrorCode,
+                $"Inventory item for product " +
+                $"'{productId}' was not found.");
         }
 
         return Ok(
@@ -134,37 +130,5 @@ public sealed class InventoryController
                 result.IsDepleted,
                 result.IsDepleted,
                 _correlationContext.CorrelationId));
-    }
-
-    private ProblemDetails
-        CreateInventoryItemNotFoundProblemDetails(
-            Guid productId)
-    {
-        var problemDetails =
-            new ProblemDetails
-            {
-                Status =
-                    StatusCodes.Status404NotFound,
-                Title =
-                    "Inventory item not found.",
-                Detail =
-                    $"Inventory item for product " +
-                    $"'{productId}' was not found.",
-                Type =
-                    $"urn:flashsale:error:" +
-                    InventoryItemNotFoundErrorCode,
-                Instance =
-                    HttpContext.Request.Path
-            };
-
-        problemDetails.Extensions[
-            "errorCode"] =
-            InventoryItemNotFoundErrorCode;
-
-        problemDetails.Extensions[
-            "correlationId"] =
-            _correlationContext.CorrelationId;
-
-        return problemDetails;
     }
 }

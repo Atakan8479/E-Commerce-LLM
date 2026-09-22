@@ -3,10 +3,10 @@
 using ECommerce.FlashSaleOrchestrator.Application
     .Abstractions.Messaging;
 using ECommerce.FlashSaleOrchestrator.Application
-    .Abstractions.Observability;
-using ECommerce.FlashSaleOrchestrator.Application
     .Carts.GetCart;
 using Microsoft.AspNetCore.Mvc;
+using ECommerce.FlashSaleOrchestrator.Api
+    .ExceptionHandling;
 
 namespace ECommerce.FlashSaleOrchestrator.Api
     .Controllers;
@@ -23,24 +23,15 @@ public sealed class CartsController
         GetCartQuery,
         CartResult?> _getCartHandler;
 
-    private readonly ICorrelationContext
-        _correlationContext;
-
     public CartsController(
         IQueryHandler<
             GetCartQuery,
-            CartResult?> getCartHandler,
-        ICorrelationContext correlationContext)
+            CartResult?> getCartHandler)
     {
         _getCartHandler =
             getCartHandler
             ?? throw new ArgumentNullException(
                 nameof(getCartHandler));
-
-        _correlationContext =
-            correlationContext
-            ?? throw new ArgumentNullException(
-                nameof(correlationContext));
     }
 
     [HttpGet("{cartId}")]
@@ -66,18 +57,11 @@ public sealed class CartsController
 
         if (result is null)
         {
-            var problemDetails =
-                CreateCartNotFoundProblemDetails(
-                    cartId);
-
-            var notFoundResult =
-                new NotFoundObjectResult(
-                    problemDetails);
-
-            notFoundResult.ContentTypes.Add(
-                "application/problem+json");
-
-            return notFoundResult;
+            return ApiProblemDetailsFactory.CreateNotFound(
+                HttpContext,
+                "Cart not found.",
+                CartNotFoundErrorCode,
+                $"Cart '{cartId}' was not found.");
         }
 
         var items =
@@ -93,36 +77,5 @@ public sealed class CartsController
             new CartResponse(
                 result.CartId,
                 items));
-    }
-
-    private ProblemDetails
-        CreateCartNotFoundProblemDetails(
-            Guid cartId)
-    {
-        var problemDetails =
-            new ProblemDetails
-            {
-                Status =
-                    StatusCodes.Status404NotFound,
-                Title =
-                    "Cart not found.",
-                Detail =
-                    $"Cart '{cartId}' was not found.",
-                Type =
-                    $"urn:flashsale:error:" +
-                    CartNotFoundErrorCode,
-                Instance =
-                    HttpContext.Request.Path
-            };
-
-        problemDetails.Extensions[
-            "errorCode"] =
-            CartNotFoundErrorCode;
-
-        problemDetails.Extensions[
-            "correlationId"] =
-            _correlationContext.CorrelationId;
-
-        return problemDetails;
     }
 }

@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using ECommerce.FlashSaleOrchestrator.Api.Contracts.Carts;
 using ECommerce.FlashSaleOrchestrator.Api.Contracts.Inventory;
 using ECommerce.FlashSaleOrchestrator.Api.Contracts.Products;
@@ -43,7 +44,8 @@ public sealed class ReadEndpointsHttpTests
                 database.ConnectionString);
 
         using var client =
-            CreateClient(factory);
+            CreateClient(
+                factory);
 
         using var response =
             await client.GetAsync(
@@ -57,7 +59,8 @@ public sealed class ReadEndpointsHttpTests
             await response.Content
                 .ReadFromJsonAsync<ProductResponse>();
 
-        Assert.NotNull(payload);
+        Assert.NotNull(
+            payload);
 
         Assert.Equal(
             productId,
@@ -83,7 +86,8 @@ public sealed class ReadEndpointsHttpTests
             Guid.NewGuid();
 
         var domainProductId =
-            ProductId.From(productId);
+            ProductId.From(
+                productId);
 
         await using (var seedContext =
             database.CreateContext())
@@ -99,7 +103,8 @@ public sealed class ReadEndpointsHttpTests
             seedContext.InventoryItems.Add(
                 InventoryItem.Create(
                     domainProductId,
-                    StockQuantity.From(7)));
+                    StockQuantity.From(
+                        7)));
 
             await seedContext
                 .SaveChangesAsync();
@@ -110,7 +115,8 @@ public sealed class ReadEndpointsHttpTests
                 database.ConnectionString);
 
         using var client =
-            CreateClient(factory);
+            CreateClient(
+                factory);
 
         using var response =
             await client.GetAsync(
@@ -124,7 +130,8 @@ public sealed class ReadEndpointsHttpTests
             await response.Content
                 .ReadFromJsonAsync<InventoryResponse>();
 
-        Assert.NotNull(payload);
+        Assert.NotNull(
+            payload);
 
         Assert.Equal(
             productId,
@@ -152,11 +159,13 @@ public sealed class ReadEndpointsHttpTests
             Guid.NewGuid();
 
         var domainProductId =
-            ProductId.From(productId);
+            ProductId.From(
+                productId);
 
         var cart =
             Cart.Create(
-                CartId.From(cartId));
+                CartId.From(
+                    cartId));
 
         cart.AddItem(
             domainProductId,
@@ -185,7 +194,8 @@ public sealed class ReadEndpointsHttpTests
                 database.ConnectionString);
 
         using var client =
-            CreateClient(factory);
+            CreateClient(
+                factory);
 
         using var response =
             await client.GetAsync(
@@ -199,7 +209,8 @@ public sealed class ReadEndpointsHttpTests
             await response.Content
                 .ReadFromJsonAsync<CartResponse>();
 
-        Assert.NotNull(payload);
+        Assert.NotNull(
+            payload);
 
         Assert.Equal(
             cartId,
@@ -216,6 +227,225 @@ public sealed class ReadEndpointsHttpTests
         Assert.Equal(
             2,
             item.Quantity);
+    }
+
+    [Fact]
+    public async Task
+        GetProduct_ShouldReturnStableProblemDetails_WhenProductDoesNotExist()
+    {
+        await using var database =
+            await ApiTestDatabase.CreateAsync();
+
+        var productId =
+            Guid.NewGuid();
+
+        using var factory =
+            new ApiWebApplicationFactory(
+                database.ConnectionString);
+
+        using var client =
+            CreateClient(
+                factory);
+
+        var correlationId =
+            $"missing-product-{Guid.NewGuid():N}";
+
+        var requestPath =
+            $"/api/products/{productId}";
+
+        using var request =
+            new HttpRequestMessage(
+                HttpMethod.Get,
+                requestPath);
+
+        request.Headers.TryAddWithoutValidation(
+            "X-Correlation-ID",
+            correlationId);
+
+        using var response =
+            await client.SendAsync(
+                request);
+
+        await AssertNotFoundProblemDetailsAsync(
+            response,
+            "Product not found.",
+            "product-not-found",
+            $"Product '{productId}' was not found.",
+            requestPath,
+            correlationId);
+    }
+
+    [Fact]
+    public async Task
+        GetInventory_ShouldReturnStableProblemDetails_WhenInventoryDoesNotExist()
+    {
+        await using var database =
+            await ApiTestDatabase.CreateAsync();
+
+        var productId =
+            Guid.NewGuid();
+
+        using var factory =
+            new ApiWebApplicationFactory(
+                database.ConnectionString);
+
+        using var client =
+            CreateClient(
+                factory);
+
+        var correlationId =
+            $"missing-inventory-{Guid.NewGuid():N}";
+
+        var requestPath =
+            $"/api/inventory/{productId}";
+
+        using var request =
+            new HttpRequestMessage(
+                HttpMethod.Get,
+                requestPath);
+
+        request.Headers.TryAddWithoutValidation(
+            "X-Correlation-ID",
+            correlationId);
+
+        using var response =
+            await client.SendAsync(
+                request);
+
+        await AssertNotFoundProblemDetailsAsync(
+            response,
+            "Inventory item not found.",
+            "inventory-item-not-found",
+            $"Inventory item for product " +
+            $"'{productId}' was not found.",
+            requestPath,
+            correlationId);
+    }
+
+    [Fact]
+    public async Task
+        GetCart_ShouldReturnStableProblemDetails_WhenCartDoesNotExist()
+    {
+        await using var database =
+            await ApiTestDatabase.CreateAsync();
+
+        var cartId =
+            Guid.NewGuid();
+
+        using var factory =
+            new ApiWebApplicationFactory(
+                database.ConnectionString);
+
+        using var client =
+            CreateClient(
+                factory);
+
+        var correlationId =
+            $"missing-cart-{Guid.NewGuid():N}";
+
+        var requestPath =
+            $"/api/carts/{cartId}";
+
+        using var request =
+            new HttpRequestMessage(
+                HttpMethod.Get,
+                requestPath);
+
+        request.Headers.TryAddWithoutValidation(
+            "X-Correlation-ID",
+            correlationId);
+
+        using var response =
+            await client.SendAsync(
+                request);
+
+        await AssertNotFoundProblemDetailsAsync(
+            response,
+            "Cart not found.",
+            "cart-not-found",
+            $"Cart '{cartId}' was not found.",
+            requestPath,
+            correlationId);
+    }
+
+    private static async Task
+        AssertNotFoundProblemDetailsAsync(
+            HttpResponseMessage response,
+            string expectedTitle,
+            string expectedErrorCode,
+            string expectedDetail,
+            string expectedInstance,
+            string expectedCorrelationId)
+    {
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            response.StatusCode);
+
+        Assert.Equal(
+            "application/problem+json",
+            response.Content.Headers
+                .ContentType?
+                .MediaType);
+
+        Assert.True(
+            response.Headers.TryGetValues(
+                "X-Correlation-ID",
+                out var correlationHeaderValues));
+
+        Assert.Equal(
+            expectedCorrelationId,
+            Assert.Single(
+                correlationHeaderValues!));
+
+        using var payload =
+            JsonDocument.Parse(
+                await response.Content
+                    .ReadAsStringAsync());
+
+        var root =
+            payload.RootElement;
+
+        Assert.Equal(
+            (int)HttpStatusCode.NotFound,
+            root.GetProperty(
+                "status")
+                .GetInt32());
+
+        Assert.Equal(
+            expectedTitle,
+            root.GetProperty(
+                "title")
+                .GetString());
+
+        Assert.Equal(
+            $"urn:flashsale:error:{expectedErrorCode}",
+            root.GetProperty(
+                "type")
+                .GetString());
+
+        Assert.Equal(
+            expectedDetail,
+            root.GetProperty(
+                "detail")
+                .GetString());
+
+        Assert.Equal(
+            expectedInstance,
+            root.GetProperty(
+                "instance")
+                .GetString());
+
+        Assert.Equal(
+            expectedErrorCode,
+            root.GetProperty(
+                "errorCode")
+                .GetString());
+
+        Assert.Equal(
+            expectedCorrelationId,
+            root.GetProperty(
+                "correlationId")
+                .GetString());
     }
 
     private static HttpClient CreateClient(
