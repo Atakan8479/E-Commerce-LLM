@@ -1,4 +1,6 @@
 using System.Text.Json;
+using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Persistence;
+using ECommerce.FlashSaleOrchestrator.Application.Inventory.DecreaseStock;
 using ECommerce.FlashSaleOrchestrator.Domain.Carts;
 using ECommerce.FlashSaleOrchestrator.Domain.Inventory;
 using ECommerce.FlashSaleOrchestrator.Domain.Inventory.Events;
@@ -1032,6 +1034,108 @@ public sealed class SqlServerPersistenceTests
             DbUpdateConcurrencyException>(
                 () =>
                     secondContext.SaveChangesAsync());
+
+        Assert.Single(
+            secondInventoryItem.DomainEvents);
+
+        await using var verificationContext =
+            database.CreateContext();
+
+        var persistedInventoryItem =
+            await verificationContext.InventoryItems
+                .AsNoTracking()
+                .SingleAsync(
+                    item =>
+                        item.ProductId == productId);
+
+        var persistedOutboxMessages =
+            await verificationContext.OutboxMessages
+                .AsNoTracking()
+                .ToListAsync();
+
+        Assert.Equal(
+            0,
+            persistedInventoryItem.AvailableQuantity.Value);
+
+        Assert.Single(
+            persistedOutboxMessages);
+
+        Assert.Equal(
+            typeof(StockDepletedDomainEvent).FullName,
+            persistedOutboxMessages[0].Type);
+
+        Assert.Null(
+            persistedOutboxMessages[0].ProcessedAtUtc);
+    }
+
+    [Fact]
+    public async Task UnitOfWorkSaveChangesAsync_ShouldTranslateInventoryConcurrencyException_WhenRowVersionConflict()
+    {
+        await using var database =
+            await TestDatabase.CreateAsync();
+
+        var productId =
+            ProductId.New();
+
+        await using (var arrangeContext =
+            database.CreateContext())
+        {
+            arrangeContext.Products.Add(
+                Product.Create(
+                    productId,
+                    ProductName.From(
+                        "Unit of Work Concurrency Test Product")));
+
+            await arrangeContext.SaveChangesAsync();
+
+            arrangeContext.InventoryItems.Add(
+                InventoryItem.Create(
+                    productId,
+                    StockQuantity.From(1)));
+
+            await arrangeContext.SaveChangesAsync();
+        }
+
+        await using var firstContext =
+            database.CreateContext();
+
+        await using var secondContext =
+            database.CreateContext();
+
+        var firstInventoryItem =
+            await firstContext.InventoryItems.SingleAsync(
+                item =>
+                    item.ProductId == productId);
+
+        var secondInventoryItem =
+            await secondContext.InventoryItems.SingleAsync(
+                item =>
+                    item.ProductId == productId);
+
+        firstInventoryItem.DecreaseStock(
+            1);
+
+        await firstContext.SaveChangesAsync();
+
+        secondInventoryItem.DecreaseStock(
+            1);
+
+        // Call through IUnitOfWork interface (not direct DbContext)
+        var unitOfWork = (IUnitOfWork)secondContext;
+
+        var exception =
+            await Assert.ThrowsAsync<
+                InventoryConcurrencyException>(
+                    () =>
+                        unitOfWork.SaveChangesAsync());
+
+        Assert.Equal(
+            productId.Value,
+            exception.ProductId);
+
+        Assert.IsType<
+            DbUpdateConcurrencyException>(
+                exception.InnerException);
 
         Assert.Single(
             secondInventoryItem.DomainEvents);
