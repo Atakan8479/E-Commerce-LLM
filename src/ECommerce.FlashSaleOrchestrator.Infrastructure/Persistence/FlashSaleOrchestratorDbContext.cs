@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Observability;
 using ECommerce.FlashSaleOrchestrator.Application.Abstractions.Persistence;
+using ECommerce.FlashSaleOrchestrator.Application.Inventory.DecreaseStock;
 using ECommerce.FlashSaleOrchestrator.Domain.Abstractions;
 using ECommerce.FlashSaleOrchestrator.Domain.Carts;
 using ECommerce.FlashSaleOrchestrator.Domain.FlashSales;
@@ -139,8 +140,30 @@ public sealed class FlashSaleOrchestratorDbContext
     async Task IUnitOfWork.SaveChangesAsync(
         CancellationToken cancellationToken)
     {
-        await SaveChangesAsync(
-            cancellationToken);
+        try
+        {
+            await SaveChangesAsync(
+                cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            var inventoryItem =
+                exception.Entries
+                    .Select(
+                        entry =>
+                            entry.Entity)
+                    .OfType<InventoryItem>()
+                    .FirstOrDefault();
+
+            var productId =
+                inventoryItem?.ProductId.Value
+                ?? Guid.Empty;
+
+            throw new InventoryConcurrencyException(
+                productId,
+                innerException:
+                    exception);
+        }
     }
 
     private OutboxMessage CreateOutboxMessage(

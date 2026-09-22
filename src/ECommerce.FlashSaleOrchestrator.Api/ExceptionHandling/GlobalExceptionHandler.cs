@@ -119,6 +119,14 @@ public sealed class GlobalExceptionHandler
                     "inventory-item-not-found",
                     exception.Message),
 
+            InventoryConcurrencyException =>
+                new ErrorDescriptor(
+                    StatusCodes.Status409Conflict,
+                    "Inventory update conflict.",
+                    "inventory-concurrency-conflict",
+                    "Inventory changed while this request was being processed. " +
+                    "Refresh the current inventory state and retry if appropriate."),
+
             InsufficientStockException =>
                 new ErrorDescriptor(
                     StatusCodes.Status409Conflict,

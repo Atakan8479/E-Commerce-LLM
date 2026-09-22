@@ -44,9 +44,15 @@ public sealed class CorrelationIdMiddleware
         correlationContext.SetCorrelationId(
             correlationId);
 
-        httpContext.Response.Headers[
-            CorrelationMetadata.HeaderName] =
-            correlationId;
+        httpContext.Response.OnStarting(
+            () =>
+            {
+                httpContext.Response.Headers[
+                    CorrelationMetadata.HeaderName] =
+                    correlationId;
+
+                return Task.CompletedTask;
+            });
 
         using (_logger.BeginScope(
                    new Dictionary<string, object>
