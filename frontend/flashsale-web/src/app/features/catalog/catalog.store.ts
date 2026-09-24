@@ -91,6 +91,29 @@ export class CatalogStore {
     this.load();
   }
 
+  applyInventoryUpdate(
+    productId: string,
+    availableQuantity: number,
+    isDepleted: boolean
+  ): void {
+    this.state.update(
+      currentState => ({
+        ...currentState,
+        items:
+          currentState.items.map(
+            item =>
+              item.productId === productId
+                ? {
+                    ...item,
+                    availableQuantity,
+                    isDepleted
+                  }
+                : item
+          )
+      })
+    );
+  }
+
   private load(): void {
     if (this.state().status === 'loading') {
       return;
