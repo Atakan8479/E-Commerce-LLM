@@ -1,0 +1,37 @@
+<article
+  class="product-card"
+  [class.product-card--depleted]="item().isDepleted">
+
+  <div class="product-card__top">
+    <span class="product-card__category">
+      {{ item().category }}
+    </span>
+
+    <span
+      class="product-card__stock"
+      [class.product-card__stock--depleted]="item().isDepleted">
+
+      {{ stockLabel() }}
+    </span>
+  </div>
+
+  <div class="product-card__content">
+    <h2 class="product-card__name">
+      {{ item().name }}
+    </h2>
+
+    <p class="product-card__id">
+      {{ item().productId }}
+    </p>
+  </div>
+
+  <div class="product-card__inventory">
+    <span class="product-card__inventory-label">
+      Available inventory
+    </span>
+
+    <strong class="product-card__inventory-value">
+      {{ item().availableQuantity }}
+    </strong>
+  </div>
+</article>

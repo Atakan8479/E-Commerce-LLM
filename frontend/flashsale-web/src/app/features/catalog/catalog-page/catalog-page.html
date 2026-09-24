@@ -1,0 +1,97 @@
+<section class="catalog-page">
+  <header class="catalog-page__header">
+    <div>
+      <p class="catalog-page__eyebrow">
+        Inventory overview
+      </p>
+
+      <h2 class="catalog-page__title">
+        Product Catalog
+      </h2>
+
+      <p class="catalog-page__description">
+        Products currently participating in the
+        flash-sale inventory workflow.
+      </p>
+    </div>
+
+    <button
+      class="catalog-page__refresh"
+      type="button"
+      [disabled]="catalog.isLoading()"
+      (click)="refresh()">
+
+      @if (catalog.isLoading()) {
+        Refreshing...
+      } @else {
+        Refresh
+      }
+    </button>
+  </header>
+
+  @if (catalog.isLoading() && !catalog.hasItems()) {
+    <section
+      class="catalog-state"
+      aria-live="polite">
+
+      <div class="catalog-state__spinner"></div>
+
+      <h3>
+        Loading catalog
+      </h3>
+
+      <p>
+        Retrieving the latest product and
+        inventory state.
+      </p>
+    </section>
+  }
+
+  @if (catalog.hasError()) {
+    <section
+      class="catalog-state catalog-state--error"
+      role="alert">
+
+      <h3>
+        Catalog unavailable
+      </h3>
+
+      <p>
+        {{ catalog.errorMessage() }}
+      </p>
+
+      <button
+        class="catalog-state__action"
+        type="button"
+        (click)="refresh()">
+
+        Try again
+      </button>
+    </section>
+  }
+
+  @if (catalog.isEmpty()) {
+    <section class="catalog-state">
+      <h3>
+        No catalog items
+      </h3>
+
+      <p>
+        No products with inventory records are
+        currently available.
+      </p>
+    </section>
+  }
+
+  @if (catalog.hasItems()) {
+    <div class="catalog-grid">
+      @for (
+        item of catalog.items();
+        track item.productId
+      ) {
+        <app-product-card
+          [item]="item" />
+      }
+    </div>
+  }
+</section>

@@ -1,0 +1,164 @@
+:host {
+  display: block;
+}
+
+.catalog-page {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.catalog-page__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.catalog-page__eyebrow {
+  margin: 0 0 0.45rem;
+
+  color: #64748b;
+
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+
+  text-transform: uppercase;
+}
+
+.catalog-page__title {
+  margin: 0;
+
+  color: #0f172a;
+
+  font-size: clamp(
+    1.75rem,
+    4vw,
+    2.4rem
+  );
+
+  line-height: 1.15;
+}
+
+.catalog-page__description {
+  max-width: 650px;
+  margin: 0.75rem 0 0;
+
+  color: #64748b;
+
+  line-height: 1.65;
+}
+
+.catalog-page__refresh,
+.catalog-state__action {
+  border: 0;
+  border-radius: 0.65rem;
+
+  color: #ffffff;
+  background: #0f172a;
+
+  font-weight: 700;
+
+  cursor: pointer;
+
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.catalog-page__refresh {
+  min-width: 110px;
+  padding: 0.7rem 1rem;
+}
+
+.catalog-state__action {
+  margin-top: 0.5rem;
+  padding: 0.65rem 0.9rem;
+}
+
+.catalog-page__refresh:hover:not(:disabled),
+.catalog-state__action:hover {
+  transform: translateY(-1px);
+}
+
+.catalog-page__refresh:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.catalog-grid {
+  display: grid;
+  grid-template-columns:
+    repeat(
+      auto-fit,
+      minmax(260px, 1fr)
+    );
+
+  gap: 1.25rem;
+}
+
+.catalog-state {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+
+  padding: 4rem 2rem;
+
+  border: 1px dashed #cbd5e1;
+  border-radius: 1rem;
+
+  text-align: center;
+
+  background: #ffffff;
+}
+
+.catalog-state--error {
+  border-color: #fecaca;
+  background: #fffafa;
+}
+
+.catalog-state h3 {
+  margin: 0.75rem 0 0;
+
+  color: #0f172a;
+}
+
+.catalog-state p {
+  max-width: 520px;
+  margin: 0.6rem 0 0;
+
+  color: #64748b;
+
+  line-height: 1.6;
+}
+
+.catalog-state__spinner {
+  width: 34px;
+  height: 34px;
+
+  border: 3px solid #e2e8f0;
+  border-top-color: #0f172a;
+  border-radius: 50%;
+
+  animation:
+    catalog-spin 700ms linear infinite;
+}
+
+@keyframes catalog-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 640px) {
+  .catalog-page__header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .catalog-page__refresh {
+    align-self: flex-start;
+  }
+}
