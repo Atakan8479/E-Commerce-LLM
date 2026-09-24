@@ -34,4 +34,91 @@
       {{ item().availableQuantity }}
     </strong>
   </div>
+
+  <section class="product-card__action">
+    <label
+      class="product-card__quantity-label"
+      [for]="'quantity-' + item().productId">
+
+      Quantity
+    </label>
+
+    <div class="product-card__action-row">
+      <input
+        class="product-card__quantity"
+        type="number"
+        min="1"
+        [max]="item().availableQuantity"
+        step="1"
+        [id]="'quantity-' + item().productId"
+        [value]="quantity()"
+        [disabled]="item().isDepleted || isSubmitting()"
+        (input)="onQuantityInput($event)">
+
+      <button
+        class="product-card__action-button"
+        type="button"
+        [disabled]="!canSubmit()"
+        (click)="submitDecrease()">
+
+        @if (isSubmitting()) {
+          Updating...
+        } @else {
+          Decrease stock
+        }
+      </button>
+    </div>
+
+    @if (
+      !item().isDepleted &&
+      quantity() > item().availableQuantity
+    ) {
+      <p class="product-card__validation">
+        Quantity cannot exceed the available inventory.
+      </p>
+    }
+  </section>
+
+  @if (feedback(); as actionFeedback) {
+    <section
+      class="product-card__feedback"
+      [class.product-card__feedback--success]="
+        actionFeedback.kind === 'success'
+      "
+      [class.product-card__feedback--error]="
+        actionFeedback.kind === 'error'
+      "
+      [attr.role]="
+        actionFeedback.kind === 'error'
+          ? 'alert'
+          : 'status'
+      ">
+
+      <strong>
+        @if (actionFeedback.kind === 'success') {
+          Inventory updated
+        } @else {
+          Update failed
+        }
+      </strong>
+
+      <p>
+        {{ actionFeedback.message }}
+      </p>
+
+      @if (actionFeedback.errorCode) {
+        <small>
+          Error code:
+          {{ actionFeedback.errorCode }}
+        </small>
+      }
+
+      @if (actionFeedback.correlationId) {
+        <small>
+          Correlation:
+          {{ actionFeedback.correlationId }}
+        </small>
+      }
+    </section>
+  }
 </article>

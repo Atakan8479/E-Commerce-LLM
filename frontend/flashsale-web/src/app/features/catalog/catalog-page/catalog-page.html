@@ -90,7 +90,20 @@
         track item.productId
       ) {
         <app-product-card
-          [item]="item" />
+          [item]="item"
+          [isSubmitting]="
+            inventoryActions.isSubmitting(
+              item.productId
+            )
+          "
+          [feedback]="
+            inventoryActions.feedbackFor(
+              item.productId
+            )
+          "
+          (decreaseStock)="
+            decreaseStock($event)
+          " />
       }
     </div>
   }
