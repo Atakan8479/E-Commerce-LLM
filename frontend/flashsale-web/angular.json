@@ -55,6 +55,24 @@
             }
           },
           "defaultConfiguration": "development"
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "tsConfig": "tsconfig.spec.json",
+            "buildTarget": "flashsale-web:build:development",
+            "coverageThresholds": {
+              "statements": 80,
+              "branches": 80,
+              "functions": 80,
+              "lines": 80
+            },
+            "coverageReporters": [
+              "text",
+              "html",
+              "lcov"
+            ]
+          }
         }
       }
     }
