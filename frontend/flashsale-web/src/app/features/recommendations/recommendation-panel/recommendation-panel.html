@@ -1,0 +1,150 @@
+<section
+  class="recommendation-panel"
+  aria-live="polite">
+
+  <header class="recommendation-panel__header">
+    <div>
+      <p class="recommendation-panel__eyebrow">
+        Alternative recommendation
+      </p>
+
+      <h3 class="recommendation-panel__title">
+        Recommendation workflow
+      </h3>
+    </div>
+  </header>
+
+  @if (state().status === 'polling') {
+    <div class="recommendation-panel__state">
+      <span
+        class="recommendation-panel__spinner"
+        aria-hidden="true">
+      </span>
+
+      <div>
+        <strong>
+          Processing recommendations
+        </strong>
+
+        <p>
+          {{ state().message }}
+        </p>
+      </div>
+    </div>
+  }
+
+  @if (state().status === 'ready') {
+    <div class="recommendation-panel__plans">
+      @for (
+        plan of state().plans;
+        track plan.eventId
+      ) {
+        <article class="recommendation-plan">
+          <header class="recommendation-plan__header">
+            <span
+              class="recommendation-plan__source"
+              [class.recommendation-plan__source--llm]="
+                plan.source === 'Llm'
+              "
+              [class.recommendation-plan__source--cache]="
+                plan.source === 'Cache'
+              "
+              [class.recommendation-plan__source--deterministic]="
+                plan.source === 'Deterministic'
+              ">
+
+              {{ sourceLabel(plan.source) }}
+            </span>
+
+            <time
+              class="recommendation-plan__time"
+              [attr.datetime]="plan.createdAtUtc">
+
+              {{
+                plan.createdAtUtc
+                  | date:'medium'
+              }}
+            </time>
+          </header>
+
+          @if (plan.recommendations.length === 0) {
+            <p class="recommendation-plan__empty">
+              No in-stock alternatives were returned.
+            </p>
+          } @else {
+            <div class="recommendation-plan__items">
+              @for (
+                recommendation of plan.recommendations;
+                track recommendation.productId
+              ) {
+                <article class="recommendation-item">
+                  <div>
+                    <strong class="recommendation-item__name">
+                      {{
+                        productName(
+                          recommendation.productId
+                        )
+                      }}
+                    </strong>
+
+                    <small class="recommendation-item__id">
+                      {{ recommendation.productId }}
+                    </small>
+                  </div>
+
+                  <p class="recommendation-item__reason">
+                    {{ recommendation.reason }}
+                  </p>
+                </article>
+              }
+            </div>
+          }
+
+          <small class="recommendation-plan__event">
+            Event:
+            {{ plan.eventId }}
+          </small>
+        </article>
+      }
+    </div>
+  }
+
+  @if (
+    state().status === 'timeout' ||
+    state().status === 'error'
+  ) {
+    <div
+      class="recommendation-panel__state recommendation-panel__state--warning"
+      role="status">
+
+      <div>
+        <strong>
+          @if (state().status === 'timeout') {
+            Recommendation still pending
+          } @else {
+            Recommendation unavailable
+          }
+        </strong>
+
+        <p>
+          {{ state().message }}
+        </p>
+
+        <button
+          class="recommendation-panel__retry"
+          type="button"
+          (click)="retryPolling()">
+
+          Retry
+        </button>
+      </div>
+    </div>
+  }
+
+  @if (state().correlationId) {
+    <footer class="recommendation-panel__footer">
+      Correlation:
+      {{ state().correlationId }}
+    </footer>
+  }
+</section>

@@ -25,6 +25,10 @@ import {
 } from '../catalog/catalog.store';
 
 import {
+  RecommendationPollingStore
+} from '../recommendations/recommendation-polling.store';
+
+import {
   InventoryActionFeedback
 } from './inventory-action.models';
 
@@ -47,6 +51,9 @@ export class InventoryActionStore {
 
   private readonly catalogStore =
     inject(CatalogStore);
+
+  private readonly recommendationPolling =
+    inject(RecommendationPollingStore);
 
   private readonly actions =
     signal<
@@ -128,30 +135,39 @@ export class InventoryActionStore {
             }
           );
 
+          if (
+            response.recommendationRequested
+          ) {
+            this.recommendationPolling.start(
+              response.productId,
+              response.correlationId
+            );
+          }
+
           this.catalogStore.reload();
         },
 
         error: (error: unknown) => {
-        this.setAction(
+          this.setAction(
             productId,
             {
-            status: 'error',
-            feedback:
+              status: 'error',
+              feedback:
                 this.resolveFailure(
-                error
+                  error
                 )
             }
-        );
+          );
 
-        if (
+          if (
             error instanceof HttpErrorResponse &&
             (
-            error.status === 404 ||
-            error.status === 409
+              error.status === 404 ||
+              error.status === 409
             )
-        ) {
+          ) {
             this.catalogStore.reload();
-        }
+          }
         }
       });
   }
