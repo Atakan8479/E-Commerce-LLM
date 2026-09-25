@@ -139,7 +139,24 @@ public sealed class StockDepletedConsumerWorker
                 {
                     _logger.LogError(
                         exception,
-                        "Kafka consume operation failed.");
+                        "Kafka consume operation failed. " +
+                        "Consumption will retry after " +
+                        "{ConsumeErrorBackoff}.",
+                        _options.ConsumeErrorBackoff);
+
+                    try
+                    {
+                        await Task.Delay(
+                            _options.ConsumeErrorBackoff,
+                            stoppingToken);
+                    }
+                    catch (OperationCanceledException)
+                        when (
+                            stoppingToken
+                                .IsCancellationRequested)
+                    {
+                        break;
+                    }
 
                     continue;
                 }

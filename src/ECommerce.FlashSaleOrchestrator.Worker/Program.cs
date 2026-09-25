@@ -323,6 +323,12 @@ public static class WorkerProgram
                             .StockDepletedDeadLetterTopic),
                 "Stock depleted dead-letter Kafka topic " +
                 "must be configured.")
+            .Validate(
+                options =>
+                    options.ConsumeErrorBackoff >
+                    TimeSpan.Zero,
+                "Kafka consume error backoff " +
+                "must be greater than zero.")
             .ValidateOnStart();
 
         builder.Services.AddSingleton<IAdminClient>(

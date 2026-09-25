@@ -16,4 +16,8 @@ public sealed class KafkaConsumerOptions
 
     public string ConsumerGroupId { get; set; } =
         string.Empty;
+
+    public TimeSpan ConsumeErrorBackoff { get; set; } =
+        TimeSpan.FromSeconds(
+            1);
 }
