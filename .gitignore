@@ -487,3 +487,5 @@ $RECYCLE.BIN/
 **/dist/
 **/.angular/
 **/coverage/
+**/playwright-report/
+**/test-results/
