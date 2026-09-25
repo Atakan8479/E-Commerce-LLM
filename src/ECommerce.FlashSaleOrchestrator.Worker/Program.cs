@@ -139,6 +139,27 @@ public static class WorkerProgram
                 "must be configured.");
         }
 
+        var embeddingRequestTimeoutSecondsValue =
+            Environment.GetEnvironmentVariable(
+                "FLASHSALE_EMBEDDING_REQUEST_TIMEOUT_SECONDS")
+            ?? "10";
+
+        if (!int.TryParse(
+                embeddingRequestTimeoutSecondsValue,
+                out var embeddingRequestTimeoutSeconds) ||
+            embeddingRequestTimeoutSeconds <= 0)
+        {
+            throw new InvalidOperationException(
+                "Environment variable " +
+                "'FLASHSALE_EMBEDDING_REQUEST_TIMEOUT_SECONDS' " +
+                "must contain a positive integer " +
+                "number of seconds.");
+        }
+
+        var embeddingRequestTimeout =
+            TimeSpan.FromSeconds(
+                embeddingRequestTimeoutSeconds);
+
         var redisEndpoint =
             Environment.GetEnvironmentVariable(
                 "FLASHSALE_REDIS_ENDPOINT");
@@ -239,7 +260,8 @@ public static class WorkerProgram
                 embeddingModelId,
                 openAiEndpoint,
                 openAiApiKey,
-                semanticEmbeddingDimensions);
+                semanticEmbeddingDimensions,
+                embeddingRequestTimeout);
 
         builder.Services
             .AddSemanticRecommendationCache(

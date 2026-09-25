@@ -1,5 +1,5 @@
 ﻿using ECommerce.FlashSaleOrchestrator.Application
-    .AlternativeRecommendations.SemanticCaching;
+   .AlternativeRecommendations.SemanticCaching;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using OpenAI;
@@ -16,7 +16,8 @@ public static class SemanticRecommendationEmbeddingDependencyInjection
         string modelId,
         Uri endpoint,
         string apiKey,
-        int expectedDimensions)
+        int expectedDimensions,
+        TimeSpan requestTimeout)
     {
         ArgumentNullException.ThrowIfNull(
             services);
@@ -45,6 +46,14 @@ public static class SemanticRecommendationEmbeddingDependencyInjection
                 nameof(expectedDimensions),
                 expectedDimensions,
                 "Expected embedding dimensions must be greater than zero.");
+        }
+
+        if (requestTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(requestTimeout),
+                requestTimeout,
+                "Embedding request timeout must be greater than zero.");
         }
 
         services.AddSingleton<
@@ -77,7 +86,8 @@ public static class SemanticRecommendationEmbeddingDependencyInjection
                         IEmbeddingGenerator<
                             string,
                             Embedding<float>>>(),
-                    expectedDimensions));
+                    expectedDimensions,
+                    requestTimeout));
 
         return services;
     }
