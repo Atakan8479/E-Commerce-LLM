@@ -51,6 +51,10 @@ Frontend:
 
 - `frontend/flashsale-web`
 
+Browser-level end-to-end tests:
+
+- `frontend/flashsale-web/e2e`
+
 There is intentionally no separate Contracts project.
 
 ---
@@ -370,3 +374,212 @@ After meaningful backend changes:
 dotnet restore ECommerce.FlashSaleOrchestrator.slnx
 dotnet build ECommerce.FlashSaleOrchestrator.slnx
 dotnet test ECommerce.FlashSaleOrchestrator.slnx
+```
+
+Run focused tests first when useful, then the complete regression suite before
+the milestone is considered complete.
+
+After meaningful frontend changes, from:
+
+`frontend/flashsale-web`
+
+run:
+
+```text
+npm test
+npm run test:coverage
+npm run build
+npm run audit:dependencies
+```
+
+The primary combined frontend verification command is:
+
+```text
+npm run verify
+```
+
+Current frontend coverage gates must not be weakened merely to make CI pass.
+
+Do not remove, skip, or weaken tests solely to make a change succeed.
+
+### Full-stack E2E Validation
+
+Browser-level end-to-end tests live under:
+
+`frontend/flashsale-web/e2e`
+
+They exercise the real system boundary:
+
+Angular
+→ API
+→ SQL Server
+→ transactional outbox
+→ Kafka / Redpanda
+→ Worker
+→ recommendation pipeline
+→ recommendation persistence
+→ Angular polling
+→ rendered recommendation.
+
+From `frontend/flashsale-web`, run:
+
+```text
+npm run e2e
+```
+
+E2E tests require the Docker-backed API, Worker, SQL Server, Redpanda, and
+Redis services to be running.
+
+The Playwright configuration owns the Angular development server used by the
+browser tests. Do not require a separately started Angular server for the
+normal E2E workflow.
+
+The E2E database fixture must remain deterministic and isolated to the
+dedicated E2E product IDs.
+
+Keep E2E test execution serial while tests mutate the shared SQL fixture.
+Do not increase Playwright workers or enable fully parallel execution unless
+fixture isolation is redesigned.
+
+Do not make E2E tests depend on a live external LLM provider.
+
+The CI environment intentionally configures the LLM provider as unavailable
+so the real recommendation pipeline exercises its deterministic fallback
+behavior without requiring external credentials or provider availability.
+
+E2E tests should continue to verify, where applicable:
+
+- catalog retrieval from the real API;
+- inventory mutation through the real API;
+- stock depletion;
+- asynchronous recommendation completion;
+- recommendation rendering;
+- recommendation source rendering;
+- workflow correlation ID propagation in both the query parameter and
+  `X-Correlation-ID` header.
+
+Playwright traces, videos, screenshots, HTML reports, and test-results output
+are generated diagnostics and must not be committed.
+
+Always run:
+
+```text
+git diff --check
+```
+
+before considering a development milestone ready for commit.
+
+Inspect the final diff for accidental scope expansion.
+
+---
+
+## CI Expectations
+
+The repository CI validates backend, frontend, and browser-level full-stack
+behavior independently.
+
+### Backend CI
+
+Backend CI covers:
+
+- restore;
+- Release build;
+- integration dependencies;
+- full regression;
+- NuGet vulnerability auditing;
+- Docker image build verification.
+
+### Frontend CI
+
+Frontend CI covers:
+
+- deterministic `npm ci`;
+- Angular/Vitest tests;
+- coverage gates;
+- production Angular build;
+- npm dependency vulnerability auditing;
+- coverage artifact generation.
+
+Frontend unit/component CI must not depend on SQL Server, Kafka, Redis, or the
+Worker.
+
+### Full-stack E2E CI
+
+Full-stack E2E CI covers:
+
+- deterministic frontend dependency installation;
+- Chromium installation;
+- Docker-backed SQL Server startup;
+- Redpanda startup and topic initialization;
+- Redis startup;
+- explicit one-shot database migration;
+- API startup;
+- Worker startup;
+- API and Worker readiness;
+- deterministic SQL fixture setup;
+- real catalog retrieval;
+- real inventory mutation;
+- stock-depletion event propagation;
+- transactional outbox processing;
+- Kafka delivery;
+- Worker recommendation processing;
+- deterministic fallback when the external LLM provider is unavailable;
+- recommendation persistence;
+- Angular recommendation polling;
+- rendered recommendation verification;
+- workflow correlation propagation;
+- Playwright traces, screenshots, and videos on failure;
+- Docker service logs on failure;
+- full Docker environment teardown.
+
+The E2E CI environment must not require real LLM credentials or external LLM
+availability.
+
+Failure diagnostics should be retained as CI artifacts where practical.
+
+---
+
+## Git and Scope Discipline
+
+- Do not commit directly to `main`.
+- Use one branch for each coherent development milestone or independently
+  reviewable feature area.
+- Prefer milestone-sized commits and pull requests that group closely related
+  implementation, tests, CI, configuration, and documentation.
+- Avoid micro-commits or micro-PRs whose only purpose is changing one small file
+  or implementation detail when those changes belong to the same deliverable.
+- A larger commit must still have one understandable purpose and remain
+  independently reviewable.
+- Do not combine unrelated features, speculative refactoring, or future roadmap
+  work into the active branch.
+- Do not commit generated secrets, local configuration, build outputs, coverage
+  output, Playwright reports, test results, or temporary analysis files.
+- Do not commit changes unless explicitly requested.
+- Do not amend existing commits unless explicitly requested.
+
+When working on a named milestone, complete the approved cohesive milestone and
+stop before unrelated roadmap work.
+
+---
+
+## Definition of Done
+
+A milestone is complete only when applicable checks have passed and the final
+diff has been reviewed.
+
+At minimum:
+
+- affected code builds;
+- focused tests pass;
+- relevant full regression passes;
+- required frontend coverage gates pass;
+- browser-level E2E tests pass when the milestone affects the integrated flow;
+- dependency vulnerability gates pass where applicable;
+- `git diff --check` is clean;
+- generated outputs are not accidentally staged;
+- secrets are not present;
+- working behavior matches the intended contract;
+- documentation or CI is updated when the milestone changes developer or
+  operational behavior.
+
+Do not claim a command or test passed unless its output was actually observed.
