@@ -136,6 +136,17 @@ public sealed class StockDepletedConsumerWorker
                     break;
                 }
                 catch (ConsumeException exception)
+                    when (exception.Error.IsFatal)
+                {
+                    _logger.LogCritical(
+                        exception,
+                        "Fatal Kafka consume error occurred. " +
+                        "The stock depleted consumer cannot " +
+                        "continue safely.");
+
+                    throw;
+                }
+                catch (ConsumeException exception)
                 {
                     _logger.LogError(
                         exception,

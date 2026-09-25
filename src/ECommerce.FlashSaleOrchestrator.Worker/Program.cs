@@ -26,6 +26,7 @@ using ECommerce.FlashSaleOrchestrator.Worker
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Hosting;
 
 namespace ECommerce.FlashSaleOrchestrator.Worker;
 
@@ -37,6 +38,13 @@ public static class WorkerProgram
         var builder =
             WebApplication.CreateBuilder(
                 args);
+        builder.Services.Configure<HostOptions>(
+            options =>
+            {
+                options.BackgroundServiceExceptionBehavior =
+                    BackgroundServiceExceptionBehavior
+                        .StopHost;
+            });
 
         var sqlConnectionString =
             Environment.GetEnvironmentVariable(
