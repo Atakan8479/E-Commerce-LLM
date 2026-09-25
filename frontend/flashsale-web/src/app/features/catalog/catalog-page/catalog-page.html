@@ -89,21 +89,42 @@
         item of catalog.items();
         track item.productId
       ) {
-        <app-product-card
-          [item]="item"
-          [isSubmitting]="
-            inventoryActions.isSubmitting(
+        <div class="catalog-grid__item">
+          <app-product-card
+            [item]="item"
+            [isSubmitting]="
+              inventoryActions.isSubmitting(
+                item.productId
+              )
+            "
+            [feedback]="
+              inventoryActions.feedbackFor(
+                item.productId
+              )
+            "
+            (decreaseStock)="
+              decreaseStock($event)
+            " />
+
+          @if (
+            recommendations.hasActivity(
               item.productId
             )
-          "
-          [feedback]="
-            inventoryActions.feedbackFor(
-              item.productId
-            )
-          "
-          (decreaseStock)="
-            decreaseStock($event)
-          " />
+          ) {
+            <app-recommendation-panel
+              [state]="
+                recommendations.stateFor(
+                  item.productId
+                )
+              "
+              [catalogItems]="catalog.items()"
+              (retry)="
+                retryRecommendations(
+                  item.productId
+                )
+              " />
+          }
+        </div>
       }
     </div>
   }

@@ -14,6 +14,14 @@ import {
 } from '../../flash-sale/inventory-action.models';
 
 import {
+  RecommendationPollingStore
+} from '../../recommendations/recommendation-polling.store';
+
+import {
+  RecommendationPanel
+} from '../../recommendations/recommendation-panel/recommendation-panel';
+
+import {
   CatalogStore
 } from '../catalog.store';
 
@@ -24,7 +32,8 @@ import {
 @Component({
   selector: 'app-catalog-page',
   imports: [
-    ProductCard
+    ProductCard,
+    RecommendationPanel
   ],
   templateUrl: './catalog-page.html',
   styleUrl: './catalog-page.css',
@@ -37,6 +46,9 @@ export class CatalogPage implements OnInit {
 
   readonly inventoryActions =
     inject(InventoryActionStore);
+
+  readonly recommendations =
+    inject(RecommendationPollingStore);
 
   ngOnInit(): void {
     this.catalog.ensureLoaded();
@@ -52,6 +64,14 @@ export class CatalogPage implements OnInit {
     this.inventoryActions.decreaseStock(
       intent.productId,
       intent.quantity
+    );
+  }
+
+  retryRecommendations(
+    productId: string
+  ): void {
+    this.recommendations.retry(
+      productId
     );
   }
 }
