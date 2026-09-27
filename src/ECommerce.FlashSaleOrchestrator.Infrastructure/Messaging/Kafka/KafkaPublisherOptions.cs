@@ -10,4 +10,8 @@ public sealed class KafkaPublisherOptions
 
     public string StockDepletedTopic { get; set; } =
         string.Empty;
+
+    public TimeSpan MessageTimeout { get; set; } =
+        TimeSpan.FromSeconds(
+            10);
 }

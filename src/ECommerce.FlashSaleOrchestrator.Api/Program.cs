@@ -134,6 +134,15 @@ builder.Services
             !string.IsNullOrWhiteSpace(
                 options.StockDepletedTopic),
         "Stock depleted Kafka topic must be configured.")
+     .Validate(
+        options =>
+            options.MessageTimeout >
+            TimeSpan.Zero &&
+            options.MessageTimeout.TotalMilliseconds <=
+            int.MaxValue,
+        "Kafka publisher message timeout must be greater " +
+        "than zero and fit within the supported " +
+        "millisecond range.")
     .ValidateOnStart();
 
 builder.Services.AddSingleton<
