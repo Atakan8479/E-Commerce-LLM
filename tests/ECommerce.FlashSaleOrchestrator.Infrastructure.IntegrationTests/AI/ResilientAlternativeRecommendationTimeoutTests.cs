@@ -20,7 +20,7 @@ public sealed class
 {
     [Fact]
     public async Task
-        ExecuteAsync_ShouldRetryTimedOutLlmAndUseDeterministicFallback()
+    ExecuteAsync_ShouldSkipRetryAfterTimedOutLlmAndUseDeterministicFallback()
     {
         var candidateId =
             Guid.NewGuid();
@@ -44,7 +44,7 @@ public sealed class
             outcome.Source);
 
         Assert.Equal(
-            2,
+            1,
             chatCompletionService.CallCount);
 
         var recommendation =

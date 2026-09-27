@@ -103,6 +103,21 @@ internal sealed class
             {
                 throw;
             }
+            catch (TimeoutException exception)
+            {
+                _logger.LogWarning(
+                    exception,
+                    "Alternative recommendation primary pipeline timed out. " +
+                    "Retry will be skipped and deterministic fallback will be used. " +
+                    "CorrelationId: {CorrelationId}, " +
+                    "ProductId: {ProductId}, " +
+                    "Attempt: {Attempt}",
+                    request.CorrelationId,
+                    request.DepletedProduct.ProductId,
+                    attempt);
+
+                break;
+            }
             catch (Exception exception)
                 when (attempt < MaxAttempts)
             {
