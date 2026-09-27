@@ -1,5 +1,5 @@
 ﻿using ECommerce.FlashSaleOrchestrator.Application
-    .AlternativeRecommendations.SemanticCaching;
+   .AlternativeRecommendations.SemanticCaching;
 using Microsoft.Extensions.AI;
 
 namespace ECommerce.FlashSaleOrchestrator.Infrastructure
@@ -14,11 +14,14 @@ internal sealed class OpenAiSemanticRecommendationEmbeddingGenerator
 
     private readonly int _expectedDimensions;
 
+    private readonly TimeSpan _requestTimeout;
+
     public OpenAiSemanticRecommendationEmbeddingGenerator(
         IEmbeddingGenerator<
             string,
             Embedding<float>> embeddingGenerator,
-        int expectedDimensions)
+        int expectedDimensions,
+        TimeSpan requestTimeout)
     {
         ArgumentNullException.ThrowIfNull(
             embeddingGenerator);
@@ -31,11 +34,22 @@ internal sealed class OpenAiSemanticRecommendationEmbeddingGenerator
                 "Expected embedding dimensions must be greater than zero.");
         }
 
+        if (requestTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(requestTimeout),
+                requestTimeout,
+                "Embedding request timeout must be greater than zero.");
+        }
+
         _embeddingGenerator =
             embeddingGenerator;
 
         _expectedDimensions =
             expectedDimensions;
+
+        _requestTimeout =
+            requestTimeout;
     }
 
     public async Task<SemanticRecommendationEmbedding> GenerateAsync(
@@ -47,11 +61,35 @@ internal sealed class OpenAiSemanticRecommendationEmbeddingGenerator
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        var embedding =
-            await _embeddingGenerator.GenerateAsync(
-                text,
-                cancellationToken:
+        using var timeoutCancellationTokenSource =
+            CancellationTokenSource
+                .CreateLinkedTokenSource(
                     cancellationToken);
+
+        timeoutCancellationTokenSource.CancelAfter(
+            _requestTimeout);
+
+        Embedding<float> embedding;
+
+        try
+        {
+            embedding =
+                await _embeddingGenerator.GenerateAsync(
+                    text,
+                    cancellationToken:
+                        timeoutCancellationTokenSource.Token);
+        }
+        catch (OperationCanceledException exception)
+            when (
+                !cancellationToken.IsCancellationRequested &&
+                timeoutCancellationTokenSource
+                    .IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Embedding request timed out after " +
+                $"{_requestTimeout.TotalSeconds:0.###} seconds.",
+                exception);
+        }
 
         if (embedding.Vector.Length !=
             _expectedDimensions)

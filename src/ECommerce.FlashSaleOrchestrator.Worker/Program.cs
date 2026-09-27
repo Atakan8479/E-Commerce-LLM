@@ -26,6 +26,7 @@ using ECommerce.FlashSaleOrchestrator.Worker
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Hosting;
 
 namespace ECommerce.FlashSaleOrchestrator.Worker;
 
@@ -37,6 +38,13 @@ public static class WorkerProgram
         var builder =
             WebApplication.CreateBuilder(
                 args);
+        builder.Services.Configure<HostOptions>(
+            options =>
+            {
+                options.BackgroundServiceExceptionBehavior =
+                    BackgroundServiceExceptionBehavior
+                        .StopHost;
+            });
 
         var sqlConnectionString =
             Environment.GetEnvironmentVariable(
@@ -139,6 +147,27 @@ public static class WorkerProgram
                 "must be configured.");
         }
 
+        var embeddingRequestTimeoutSecondsValue =
+            Environment.GetEnvironmentVariable(
+                "FLASHSALE_EMBEDDING_REQUEST_TIMEOUT_SECONDS")
+            ?? "10";
+
+        if (!int.TryParse(
+                embeddingRequestTimeoutSecondsValue,
+                out var embeddingRequestTimeoutSeconds) ||
+            embeddingRequestTimeoutSeconds <= 0)
+        {
+            throw new InvalidOperationException(
+                "Environment variable " +
+                "'FLASHSALE_EMBEDDING_REQUEST_TIMEOUT_SECONDS' " +
+                "must contain a positive integer " +
+                "number of seconds.");
+        }
+
+        var embeddingRequestTimeout =
+            TimeSpan.FromSeconds(
+                embeddingRequestTimeoutSeconds);
+
         var redisEndpoint =
             Environment.GetEnvironmentVariable(
                 "FLASHSALE_REDIS_ENDPOINT");
@@ -239,7 +268,8 @@ public static class WorkerProgram
                 embeddingModelId,
                 openAiEndpoint,
                 openAiApiKey,
-                semanticEmbeddingDimensions);
+                semanticEmbeddingDimensions,
+                embeddingRequestTimeout);
 
         builder.Services
             .AddSemanticRecommendationCache(
@@ -301,6 +331,23 @@ public static class WorkerProgram
                             .StockDepletedDeadLetterTopic),
                 "Stock depleted dead-letter Kafka topic " +
                 "must be configured.")
+            .Validate(
+                options =>
+                    options.ConsumeErrorBackoff >
+                    TimeSpan.Zero,
+                "Kafka consume error backoff " +
+                "must be greater than zero.")
+
+            .Validate(
+                options =>
+                    options.DeadLetterMessageTimeout >
+                    TimeSpan.Zero &&
+                    options.DeadLetterMessageTimeout
+                        .TotalMilliseconds <=
+                    int.MaxValue,
+                "Kafka dead-letter message timeout must be " +
+                "greater than zero and fit within the " +
+                "supported millisecond range.")
             .ValidateOnStart();
 
         builder.Services.AddSingleton<IAdminClient>(

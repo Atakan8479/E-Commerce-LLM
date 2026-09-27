@@ -42,6 +42,12 @@ public sealed class KafkaEventPublisher
                 EnableIdempotence =
                     true,
 
+                MessageTimeoutMs =
+                    checked(
+                        (int)Math.Ceiling(
+                            _options.MessageTimeout
+                                .TotalMilliseconds)),
+
                 ClientId =
                     "flashsale-outbox-publisher"
             };

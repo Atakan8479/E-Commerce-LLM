@@ -1,5 +1,5 @@
 ﻿using ECommerce.FlashSaleOrchestrator.Infrastructure
-    .AI.Embeddings;
+   .AI.Embeddings;
 using Microsoft.Extensions.AI;
 
 namespace ECommerce.FlashSaleOrchestrator
@@ -19,9 +19,8 @@ public sealed class OpenAiSemanticRecommendationEmbeddingGeneratorTests
                 ]);
 
         var generator =
-            new OpenAiSemanticRecommendationEmbeddingGenerator(
-                fakeGenerator,
-                expectedDimensions: 3);
+            CreateGenerator(
+                fakeGenerator);
 
         var result =
             await generator.GenerateAsync(
@@ -52,9 +51,8 @@ public sealed class OpenAiSemanticRecommendationEmbeddingGeneratorTests
                 ]);
 
         var generator =
-            new OpenAiSemanticRecommendationEmbeddingGenerator(
-                fakeGenerator,
-                expectedDimensions: 3);
+            CreateGenerator(
+                fakeGenerator);
 
         var exception =
             await Assert.ThrowsAsync<
@@ -81,9 +79,8 @@ public sealed class OpenAiSemanticRecommendationEmbeddingGeneratorTests
                 ]);
 
         var generator =
-            new OpenAiSemanticRecommendationEmbeddingGenerator(
-                fakeGenerator,
-                expectedDimensions: 3);
+            CreateGenerator(
+                fakeGenerator);
 
         await Assert.ThrowsAsync<
             ArgumentException>(
@@ -96,7 +93,7 @@ public sealed class OpenAiSemanticRecommendationEmbeddingGeneratorTests
     }
 
     [Fact]
-    public async Task GenerateAsync_ShouldPropagateCancellation()
+    public async Task GenerateAsync_ShouldPropagateCallerCancellation()
     {
         var fakeGenerator =
             new FakeEmbeddingGenerator(
@@ -107,9 +104,8 @@ public sealed class OpenAiSemanticRecommendationEmbeddingGeneratorTests
                 ]);
 
         var generator =
-            new OpenAiSemanticRecommendationEmbeddingGenerator(
-                fakeGenerator,
-                expectedDimensions: 3);
+            CreateGenerator(
+                fakeGenerator);
 
         using var cancellationTokenSource =
             new CancellationTokenSource();
@@ -125,6 +121,72 @@ public sealed class OpenAiSemanticRecommendationEmbeddingGeneratorTests
 
         Assert.Null(
             fakeGenerator.LastInput);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_ShouldThrowTimeoutException_WhenProviderExceedsTimeout()
+    {
+        var blockingGenerator =
+            new BlockingEmbeddingGenerator();
+
+        var generator =
+            new OpenAiSemanticRecommendationEmbeddingGenerator(
+                blockingGenerator,
+                expectedDimensions: 3,
+                requestTimeout:
+                    TimeSpan.FromMilliseconds(
+                        100));
+
+        var exception =
+            await Assert.ThrowsAsync<
+                TimeoutException>(
+                () =>
+                    generator.GenerateAsync(
+                        "gaming mouse"));
+
+        Assert.True(
+            blockingGenerator.WasCalled);
+
+        Assert.Contains(
+            "timed out",
+            exception.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Constructor_ShouldRejectNonPositiveRequestTimeout()
+    {
+        var fakeGenerator =
+            new FakeEmbeddingGenerator(
+                [
+                    0.1f,
+                    0.2f,
+                    0.3f
+                ]);
+
+        Assert.Throws<
+            ArgumentOutOfRangeException>(
+            () =>
+                new OpenAiSemanticRecommendationEmbeddingGenerator(
+                    fakeGenerator,
+                    expectedDimensions: 3,
+                    requestTimeout:
+                        TimeSpan.Zero));
+    }
+
+    private static
+        OpenAiSemanticRecommendationEmbeddingGenerator
+        CreateGenerator(
+            IEmbeddingGenerator<
+                string,
+                Embedding<float>> embeddingGenerator)
+    {
+        return new OpenAiSemanticRecommendationEmbeddingGenerator(
+            embeddingGenerator,
+            expectedDimensions: 3,
+            requestTimeout:
+                TimeSpan.FromSeconds(
+                    5));
     }
 
     private sealed class FakeEmbeddingGenerator
@@ -164,6 +226,54 @@ public sealed class OpenAiSemanticRecommendationEmbeddingGeneratorTests
 
             return Task.FromResult(
                 result);
+        }
+
+        public object? GetService(
+            Type serviceType,
+            object? serviceKey)
+        {
+            if (serviceKey is not null)
+            {
+                return null;
+            }
+
+            return serviceType.IsInstanceOfType(
+                this)
+                ? this
+                : null;
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class BlockingEmbeddingGenerator
+        : IEmbeddingGenerator<
+            string,
+            Embedding<float>>
+    {
+        public bool WasCalled { get; private set; }
+
+        public async Task<
+            GeneratedEmbeddings<
+                Embedding<float>>> GenerateAsync(
+            IEnumerable<string> values,
+            EmbeddingGenerationOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            _ =
+                values.Single();
+
+            WasCalled =
+                true;
+
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+
+            throw new InvalidOperationException(
+                "Blocking embedding generator unexpectedly completed.");
         }
 
         public object? GetService(

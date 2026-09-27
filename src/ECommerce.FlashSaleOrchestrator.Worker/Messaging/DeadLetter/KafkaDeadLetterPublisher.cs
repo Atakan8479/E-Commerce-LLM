@@ -58,8 +58,15 @@ public sealed class KafkaDeadLetterPublisher
                     Acks.All,
 
                 EnableIdempotence =
-                    true
-            };
+                    true,
+
+                MessageTimeoutMs =
+                    checked(
+                        (int)Math.Ceiling(
+                            _options
+                                .DeadLetterMessageTimeout
+                                .TotalMilliseconds))
+                            };
 
         _producer =
             new ProducerBuilder<string, string>(

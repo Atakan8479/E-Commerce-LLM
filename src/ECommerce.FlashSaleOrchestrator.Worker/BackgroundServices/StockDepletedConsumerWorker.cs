@@ -136,10 +136,38 @@ public sealed class StockDepletedConsumerWorker
                     break;
                 }
                 catch (ConsumeException exception)
+                    when (exception.Error.IsFatal)
+                {
+                    _logger.LogCritical(
+                        exception,
+                        "Fatal Kafka consume error occurred. " +
+                        "The stock depleted consumer cannot " +
+                        "continue safely.");
+
+                    throw;
+                }
+                catch (ConsumeException exception)
                 {
                     _logger.LogError(
                         exception,
-                        "Kafka consume operation failed.");
+                        "Kafka consume operation failed. " +
+                        "Consumption will retry after " +
+                        "{ConsumeErrorBackoff}.",
+                        _options.ConsumeErrorBackoff);
+
+                    try
+                    {
+                        await Task.Delay(
+                            _options.ConsumeErrorBackoff,
+                            stoppingToken);
+                    }
+                    catch (OperationCanceledException)
+                        when (
+                            stoppingToken
+                                .IsCancellationRequested)
+                    {
+                        break;
+                    }
 
                     continue;
                 }

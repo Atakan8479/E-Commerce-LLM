@@ -256,6 +256,7 @@ jobs:
             echo "FLASHSALE_LLM_REQUEST_TIMEOUT_SECONDS=2"
             echo "FLASHSALE_OPENAI_API_KEY=e2e-not-used"
             echo "FLASHSALE_EMBEDDING_MODEL_ID=e2e-unavailable-embedding"
+            echo "FLASHSALE_EMBEDDING_REQUEST_TIMEOUT_SECONDS=2"
 
             echo "FLASHSALE_REDIS_CONNECT_TIMEOUT_SECONDS=5"
             echo "FLASHSALE_REDIS_OPERATION_TIMEOUT_SECONDS=5"
