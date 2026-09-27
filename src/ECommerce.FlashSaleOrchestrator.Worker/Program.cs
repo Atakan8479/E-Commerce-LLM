@@ -337,6 +337,17 @@ public static class WorkerProgram
                     TimeSpan.Zero,
                 "Kafka consume error backoff " +
                 "must be greater than zero.")
+
+            .Validate(
+                options =>
+                    options.DeadLetterMessageTimeout >
+                    TimeSpan.Zero &&
+                    options.DeadLetterMessageTimeout
+                        .TotalMilliseconds <=
+                    int.MaxValue,
+                "Kafka dead-letter message timeout must be " +
+                "greater than zero and fit within the " +
+                "supported millisecond range.")
             .ValidateOnStart();
 
         builder.Services.AddSingleton<IAdminClient>(

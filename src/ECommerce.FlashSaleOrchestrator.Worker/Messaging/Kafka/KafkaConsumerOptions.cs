@@ -20,4 +20,8 @@ public sealed class KafkaConsumerOptions
     public TimeSpan ConsumeErrorBackoff { get; set; } =
         TimeSpan.FromSeconds(
             1);
+
+    public TimeSpan DeadLetterMessageTimeout { get; set; } =
+        TimeSpan.FromSeconds(
+            10);
 }
